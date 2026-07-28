@@ -6,10 +6,9 @@ layout, switches it, and retypes the last word — like a friendly
 poltergeist that haunts your keyboard.
 
 > **Status:** v0.5.0 — out of beta since v0.1.0. Works end-to-end on
-> Windows and on Linux (both Wayland and X11); the new spelling-
-> suggestions tooltip renders on Hyprland/Sway and X11. The macOS
-> backend is written from Apple's API docs and validated on CI, but
-> hasn't yet been runtime-tuned by a hardware-equipped contributor.
+> Windows, on Linux (both Wayland and X11), and on macOS (validated
+> on macOS 15 / Intel: listener, layout switching, corrections); the
+> new spelling-suggestions tooltip renders on Hyprland/Sway and X11.
 > Installers are still **unsigned**. See [docs/PLAN.md](docs/PLAN.md)
 > for the full plan and [CHANGELOG.md](CHANGELOG.md) for what's in.
 
@@ -39,7 +38,7 @@ hotkeys, smart commands, wordlists, and per-app exceptions.*
 | OS              | Status                                                                                                                                                                        |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Windows 10 / 11 | working                                                                                                                                                                       |
-| macOS 11+       | best-effort — written from Apple's docs, CI-validated, not yet runtime-tuned on hardware; needs Accessibility permission                                                      |
+| macOS 11+       | working — validated on macOS 15 (Intel); needs Accessibility **and** Input Monitoring permission (the app prompts on first launch)                                  |
 | Linux (Wayland) | working; run `scripts/setup-linux.sh` once (evdev + uinput access). Layout switching: Hyprland, KDE Plasma, GSettings (GNOME / Ubuntu Unity / Cinnamon / Budgie / Pantheon / MATE), IBus, Fcitx5. |
 | Linux (X11)     | working, and needs **no setup script at all** — XInput2 listener + XTest emitter need no `input`-group membership. Layout switching via the DE backends above, falling back to XKB group locking on bare WMs (i3, openbox, …). |
 
