@@ -57,7 +57,9 @@ use poltertype_core::engine::{EngineCommand, SwitcherEngine, SwitcherEvent};
 use poltertype_core::layouts::LayoutDb;
 use poltertype_core::settings::SettingsStore;
 use poltertype_detect::Detector;
-use poltertype_input::{KeyEvent, create_emitter, create_focus_tracker, create_listener};
+use poltertype_input::{
+    KeyEvent, create_emitter, create_focus_tracker, create_key_gate, create_listener,
+};
 use poltertype_layout::create_switcher;
 use poltertype_popup::{PopupUiEvent, create_popup};
 use poltertype_types::LayoutId;
@@ -221,6 +223,13 @@ fn main() -> Result<()> {
             Arc::from(noop_emitter()) as Arc<dyn poltertype_input::KeyEmitter>
         }
     };
+    // Holds the user's keystrokes back while a correction is typed, so
+    // nothing of theirs lands in the middle of it. Created before the
+    // listener because on Linux/evdev the two share the thread that
+    // owns the devices; whether it can do anything is decided once the
+    // listener starts (see `KeyGate::available`).
+    let key_gate = create_key_gate();
+
     let audio = Arc::new(AudioPlayer::new());
     audio.refresh_from(&settings);
 
@@ -305,6 +314,7 @@ fn main() -> Result<()> {
         detectors,
         Arc::clone(&layout_switcher),
         Arc::clone(&key_emitter),
+        key_gate.clone(),
         Arc::clone(&focus_tracker),
         Arc::clone(&audio),
         engine_event_tx,
@@ -322,7 +332,7 @@ fn main() -> Result<()> {
     // menu entry, and a one-shot notification. A log file the user
     // has never heard of is not a user interface.
     let mut input_alert: Option<String> = None;
-    let mut input_listener = match create_listener() {
+    let mut input_listener = match create_listener(&key_gate) {
         Ok(l) => Some(l),
         Err(e) => {
             warn!(
@@ -335,7 +345,11 @@ fn main() -> Result<()> {
     };
     if let Some(listener) = input_listener.as_mut() {
         match listener.start(key_tx) {
-            Ok(()) => info!(backend = listener.backend_name(), "input listener started"),
+            Ok(()) => info!(
+                backend = listener.backend_name(),
+                holds_keys = key_gate.available(),
+                "input listener started"
+            ),
             Err(e) => {
                 warn!(?e, "input listener failed to start");
                 input_alert = Some(e.to_string());
@@ -450,6 +464,11 @@ fn main() -> Result<()> {
         Some(l) => icon_render::for_layout(l, false)?,
         None => icon_render::unknown()?,
     };
+
+    // Before the tray exists: the GTK backend greets its construction
+    // with a deprecation warning meant for whoever links it, not for
+    // the user reading the journal. See `poltertype-tray`.
+    poltertype_tray::quiet_gtk_tray_logs();
 
     let tray: TrayIcon = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
@@ -769,6 +788,7 @@ fn main() -> Result<()> {
             Event::UserEvent(UserEvent::Popup(pe)) => match pe {
                 PopupUiEvent::Accepted { generation, index } => {
                     let _ = cmd_tx_for_loop.send(EngineCommand::AcceptSuggestion {
+                        typed_digit: false,
                         generation,
                         index,
                         from_pointer: true,

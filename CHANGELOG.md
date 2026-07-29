@@ -4,6 +4,146 @@ All notable changes to PolterType are recorded here. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] — fork: upstream v0.6.x plus the macOS port, and an updater that follows this fork
+
+This fork release rolls upstream's v0.6.0/v0.6.1 (suggestion-tooltip
+anchoring, the Wayland key gate, tray-crate refresh) together with
+the macOS port validated on real hardware (see 0.5.1 below), and
+repoints every app-facing link — the update manifest, the releases
+fallback, the setup guide, repo/issues links — at this fork
+(`shohart/PolterType`) instead of upstream, so the in-app updater
+can no longer replace a macOS-fixed build with an upstream one.
+
+### Added
+
+- **Autostart is now real on macOS.** The "Start automatically when I
+  sign in" checkbox used to edit `config.toml` and nothing else; it
+  now manages a per-user LaunchAgent
+  (`~/Library/LaunchAgents/dev.opensource.poltertype.plist`),
+  applied at startup and after every Settings-UI save.
+- **Settings UI speaks macOS.** Hotkey chips render ⌃⌥⇧⌘ and key
+  glyphs; hints name the modifiers the way the keyboard does. The
+  pause-hotkey default no longer collides with macOS's own
+  input-source switching shortcut (Ctrl+Shift+P on macOS).
+
+## [0.6.1] — the suggestion tooltip stops chasing your mouse
+
+### Fixed — the suggestion tooltip lands where you are typing
+
+Two bugs put the tooltip somewhere other than the text being corrected.
+
+- **The tooltip followed the mouse, not the caret.** When the focused
+  app exposed no AT-SPI caret, the anchor fell back to the pointer
+  position, on the theory that the user had just clicked into the text
+  they were editing. Nothing checked that the pointer was still *at*
+  that click, so an idle mouse parked mid-screen pulled the tooltip to
+  the middle of the display while the caret sat in a chat box at the
+  bottom edge. The pointer anchor is gone: without a caret the tooltip
+  now hangs above the bottom edge of the focused window, which is the
+  neighbourhood of the chat inputs and shell prompts this feature is
+  for.
+- **The first tooltip of every session was placed blind.** On Wayland
+  the popup thread parks on its command channel between popups and
+  reads nothing from the compositor, so the outputs' names, sizes and
+  scales — which arrive as events, not with the globals — had not been
+  received when the first popup was built. That popup got no screen
+  bounds to clamp against and no named output, leaving the choice of
+  monitor to the compositor while the coordinates had been computed for
+  a different one. The popup thread now refreshes its output state
+  before every show, which also picks up hotplugs and mode changes that
+  happened while it was parked.
+
+### Fixed — no more appindicator deprecation notice on Linux
+
+Every start printed `libayatana-appindicator is deprecated. Please use
+libayatana-appindicator-glib in newly written code.` to stderr. The
+notice is aimed at whoever links the library — `tray-icon`, through
+`libappindicator` — and there is nothing a user can do about it. It now
+goes to PolterType's own log at debug level instead of the journal, so
+it stays available to us without being noise for you. New
+`poltertype-tray` crate, which exists so the binary crate can keep
+holding no platform-conditional code at all.
+
+## [0.6.0] — PolterType stops tripping over your typing
+
+### Fixed — corrections no longer scramble the word you type next
+
+Typing `зтзь ` (i.e. `pnpm ` on the wrong layout) and carrying straight
+on with the next word could leave `ipnpm ` on screen — the `i` in front
+of the correction rather than behind it, and `pinpm ` / `pnpmi ` when it
+landed further in. The keystroke was reaching the application *inside*
+the correction's own burst, where the compositor interleaves it with our
+injected keys and no amount of counting afterwards can place it.
+
+- **The blind settle sleep before a replay is gone.** Both Linux
+  emitters paused 30 ms right before typing the corrected word, to let
+  the compositor finish propagating the new keyboard layout. That pause
+  sat between our last look at the key stream and our first emitted
+  key — precisely the window a keystroke slipped into. The engine owns
+  that wait now, measured from the actual layout switch and taken before
+  the deletion, where it costs nothing (the absorb gate has usually
+  covered it several times over already).
+- **The engine looks at the key stream later, and once more.** The probe
+  that catches keys racing the deletion now allows for the trip from
+  device to listener thread, so keys pressed during the burst are seen
+  while they can still be placed.
+- **A keystroke that gets in anyway is repaired.** After emitting, the
+  engine checks whether anything landed inside its own burst and, if the
+  user has since paused, erases what it typed — intruder included — and
+  retypes it all in the order it was typed. The repair waits for that
+  pause on purpose and is budgeted: a correction must never end up
+  chasing a still-typing user down the line, so if no pause comes it
+  leaves the text alone and stops vouching for the screen instead.
+
+### Added — corrections hold your keystrokes instead of racing them
+
+Repairing a scrambled correction is treating the symptom. On
+Linux/Wayland PolterType now **holds the keyboard back** for the length
+of a correction burst (`EVIOCGRAB`) and types out whatever you pressed
+meanwhile itself, in the order you pressed it. Typing a whole command
+straight through in the wrong layout — `зтзь ш кгт ` at a real typing
+cadence — went from 4 wrong results in 6 to none.
+
+- **It stands down where it would do harm.** Behind an input remapper
+  (keyd and friends) the only grabbable source of your keystrokes also
+  carries PolterType's own, so grabbing it would block the correction
+  itself. PolterType detects that at startup and quietly keeps the
+  detect-and-repair behaviour instead — `docs/PERMISSIONS.md` has the
+  keyd one-liner if you want the stronger path. `POLTERTYPE_HOLD_KEYS=0`
+  turns it off entirely.
+- **It cannot leave your keyboard dead.** The thread that owns the
+  devices drops the hold after 1.2 s no matter what the engine is
+  doing, and a crashed process releases it by construction. Backspace,
+  arrows and Esc pressed during a burst are typed out too rather than
+  swallowed.
+
+### Fixed — accepting a suggestion with the keyboard actually replaces the word
+
+`Ctrl+Meta+<digit>` (and the default `Ctrl+Shift+<digit>`) did nothing
+visible. The accept itself was working the whole time — the replacement
+was simply typed while the chord's own modifiers were still held, so
+every key of it arrived at the application as a shortcut rather than a
+character. Corrections now wait for the chord to come up before typing,
+and ask the emitter to release what is held; the manual switch-last
+hotkey had the same flaw and is fixed by the same change.
+
+The digit itself is erased along with the word now, too. Chords are
+matched off the key stream rather than grabbed — registering nine
+global hotkeys would take those combinations away from every
+application — so the digit reaches the document on its way past, and
+was being left behind in the replaced text.
+
+### Fixed — the input thread no longer goes blind every 2 seconds
+
+The device rescan that picks up hot-plugged keyboards re-opened every
+node under `/dev/input` and read its capabilities — 70–140 ms on the
+same thread that reads your keystrokes, every 2 seconds. Events piled
+up in kernel buffers and arrived late in a burst, right where the
+correction logic is at its most timing-sensitive. It now opens only
+devices that are genuinely new. A keyboard unplugged and plugged back
+into the same port is also picked up again, which the first version of
+this fix would have missed.
+
 ## [0.5.1] — PolterType actually runs on a Mac
 
 The macOS backend shipped in v0.5.0 had only ever been validated by
@@ -50,7 +190,6 @@ build crashed on launch and never processed a single keystroke.
   silently and just logged). Note macOS also requires **Input
   Monitoring** for key delivery — the system prompts for it on first
   run.
-
 ## [0.5.0] — PolterType starts fixing your typos, not just your layout
 
 ### Added — spelling suggestions for plain typos

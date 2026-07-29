@@ -6,6 +6,159 @@ and any **alternatives** considered.
 
 ---
 
+## 2026-07-29 — A `poltertype-tray` crate, for one function
+
+Building the tray makes `libayatana-appindicator` print a deprecation
+notice to stderr on every start — addressed to whoever links it, which
+is `tray-icon`, not us. There is no lever on our side: the sys crate
+`dlopen`s `libayatana-appindicator3.so.1` by name, its `backcompat`
+feature only adds unversioned-`.so` fallbacks, and `tray-icon` 0.24 —
+five versions ahead of the one we pin — still loads the same object.
+
+**Redirected, not silenced.** A GLib log handler on that one domain
+hands the text to `tracing` at debug level. The message stays reachable
+the day the library actually disappears (which would break the tray),
+without sitting in the journal of every Linux user. Every other GLib
+domain keeps GLib's default handler.
+
+**Why a whole crate for fifteen lines.** `poltertype-app` contains no
+`#[cfg(target_os = "...")]` at all — platform code lives in dedicated
+crates, and that rule is worth more than the crate it costs. The
+alternatives were to put the first `#[cfg]` in the binary and amend the
+rule, or to hide a GTK concern inside an unrelated platform crate. So
+`poltertype-tray` exists, holding per-OS tray quirks; the `TrayIcon`
+itself is still built in the app, because `tray-icon` already
+abstracts it. The list in `CLAUDE.md` is now five crates, not four.
+
+**`cargo deny` gained an entry on the way.** RUSTSEC-2024-0429 (glib
+0.18's unsound `VariantStrIter`) fails the advisory check — it already
+did before this change, since `tray-icon` and `tao` have pulled glib
+into the lockfile all along; the advisory is simply newer than the last
+release. The fix is glib >=0.20, which needs gtk-rs 0.20, which needs a
+`tray-icon` that has left GTK3 — the same wait as the nine GTK3 entries
+above it. Nothing here calls the affected API.
+
+---
+
+## 2026-07-29 — The tooltip anchors to the caret or the window, never the mouse
+
+The suggestion tooltip's anchor chain had the pointer position sitting
+between the AT-SPI caret and the focused window, justified as "after a
+click into the text the pointer hovers near the caret". That premise
+holds for about a second. Nothing in the chain could tell a pointer
+resting where the user last clicked from one parked in the middle of
+the screen while they typed, and the second case is the common one —
+you click into a chat box, take your hand back to the keyboard, and the
+mouse stays wherever it was. Reported against a chat input at the very
+bottom of a display, with the tooltip appearing in the centre of it;
+reproduced with the caret 600 px below the pointer, the tooltip landing
+on the pointer every time.
+
+**Removed rather than repaired.** The honest fix would need to know
+when the pointer was last moved *and* that it was moved into text,
+which neither Hyprland's `cursorpos` nor X11's `QueryPointer` can say
+and which no amount of click-tracking recovers once the pointer drifts.
+Without a caret the tooltip now falls to the window rect — bottom-centre,
+`BOTTOM_OFFSET` above the window's bottom edge. That is coarse for a
+caret in the middle of a code editor, and right for the chat inputs and
+shell prompts that dominate this feature; more to the point it is always
+in the focused window, which the pointer anchor could not promise. The
+`FocusTracker::pointer_position` method and its three backends went with
+it.
+
+**A second bug hid behind the first.** The Wayland popup thread blocks
+on its command channel while no popup is up, so it reads nothing from
+the compositor between shows. `OutputState`'s replies — the output
+names, logical sizes and scales that every placement depends on — had
+not arrived when the *first* popup of a session was built: it got
+`bounds: None` (no edge clamping at all) and `output: None` on the layer
+surface, which hands the compositor the choice of monitor while the
+margins were computed against a different one's origin. The second popup
+onwards worked, because the tick loop had pumped the queue by then,
+which is exactly why it looked intermittent. The thread now round-trips
+the queue before serving a `Show` — one round-trip on a thread that has
+nothing else to do, and it picks up hotplugs and mode changes that
+happened while parked as a bonus.
+
+Verified live on a four-output Hyprland session, including a
+`transform: 3` rotated output (logical bounds correctly `1440×2560`) and
+a fractional-scale one (`2048×1280` at scale 2).
+
+---
+
+## 2026-07-29 — Hold keystrokes back with `EVIOCGRAB` during a correction
+
+A correction is a burst of injected keys, and the compositor
+interleaves whatever the user types into it. Counting after the fact
+cannot place a key that landed *inside* our own text (`зтзь ш ` came
+out as `ipnpm `), so the fix is to stop the user's keys from reaching
+applications until the burst has landed — `EVIOCGRAB`, the evdev
+equivalent of a Windows low-level hook swallowing events. We keep
+reading the grabbed devices, so the engine still sees every keystroke
+and types them out behind the correction, in order
+(`poltertype-input::KeyGate`).
+
+Measured on Hyprland + keyd (uinput injection at fixed inter-key gaps,
+result read back through the clipboard). Typing a whole command
+straight through — `зтзь ш кгт `, 90–190 ms gaps:
+
+| | wrong |
+|---|---|
+| absorb + repair only | 4 of 6 |
+| first working gate | 6 of 6 (worse: characters *missing*) |
+| gate, after the three fixes below | **0 of 6** |
+
+The gate only became a win once three things were fixed, none of them
+in the gate's own logic — each was found by measuring rather than
+reasoning:
+
+1. **The 2 s device rescan blocked the read loop for 70–140 ms.**
+   `evdev::enumerate()` opens every node under `/dev/input` and reads
+   its capabilities; doing that on the thread that reads key events
+   left the engine blind for ~5 % of wall-clock time, events arriving
+   late and in bursts. It now reads the directory and opens only
+   genuinely new paths — and remembers the verdict per path, since most
+   nodes are sound cards that will never be keyboards. (A win with or
+   without the gate.)
+2. **Releasing a device costs 13–25 ms.** The gate grabbed every open
+   device — mice, lid switch, idle HID endpoints — so a correction
+   spent ~100 ms in `EVIOCGRAB(0)` inside the very thread that has to
+   notice the user typing. It now holds only keyboards, and only ones
+   used in the last 30 s: in practice one device.
+3. **A grab that outlived its correction was catastrophic.** The next
+   correction then counted held keystrokes as though they were on
+   screen and deleted text that was never there — a whole word gone,
+   far worse than a transposition. `release()` waits for the device
+   thread to confirm (250 ms, which costs the user nothing since their
+   text is already on screen), and `hold()` refuses to start on top of
+   a stale grab.
+
+Safety: the device thread owns the grab and drops it after
+[`MAX_HOLD`] (1.2 s) whatever the engine does, so a hung or panicking
+correction cannot leave the keyboard dead; a crashed process is safe by
+construction, as the kernel releases on close. Held keys are never
+silently eaten — Backspace, arrows and Esc are re-emitted after our
+text, which is where they would have landed anyway. Shortcuts are the
+one gap: they need modifiers the emitter cannot reproduce, so the gate
+lets go immediately instead.
+
+**Behind an input remapper the gate cannot run, and knows it.** keyd
+holds every physical keyboard *and our own uinput device* exclusively
+and re-emits through one virtual keyboard, so the only grabbable source
+of the user's keys also carries ours — grabbing it silently gags the
+correction itself (verified: injection from a keyd-claimed device under
+that grab produces nothing at all). The probe is exact and cheap: if we
+can grab our own emitter, nobody is proxying it. Those users keep the
+detect-and-repair path, and `docs/PERMISSIONS.md` documents the keyd
+one-liner that gets them the gate.
+
+Also worth recording, since it looked like an answer for a while: keyd
+claims a uinput device by the *breadth of keys it declares*, not by
+name or vendor. Declaring only what the emitter can actually type (51
+keys) is still claimed; only an implausibly small keyboard escapes.
+Masquerading under keyd's own vendor id works but is a lie about what
+the device is, so it is not shipped.
+
 ## 2026-05-02 — Use Win SC Set-1 scancodes as the canonical key identity
 
 The engine indexes layout-mapping tables by *scancode*, not by

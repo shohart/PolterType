@@ -5,12 +5,18 @@ Lives in the system tray. Detects when you start typing in the wrong
 layout, switches it, and retypes the last word — like a friendly
 poltergeist that haunts your keyboard.
 
-> **Status:** v0.5.0 — out of beta since v0.1.0. Works end-to-end on
+> **Status:** v0.6.2 — out of beta since v0.1.0. Works end-to-end on
 > Windows, on Linux (both Wayland and X11), and on macOS (validated
 > on macOS 15 / Intel: listener, layout switching, corrections); the
-> new spelling-suggestions tooltip renders on Hyprland/Sway and X11.
-> Installers are still **unsigned**. See [docs/PLAN.md](docs/PLAN.md)
-> for the full plan and [CHANGELOG.md](CHANGELOG.md) for what's in.
+> spelling-suggestions tooltip renders on Hyprland/Sway and X11. On
+> Linux/Wayland a correction now holds your keystrokes back while it
+> types and replays them behind itself, so carrying straight on with
+> the next word no longer scrambles the result — except behind an
+> input remapper such as keyd, where PolterType stands down and falls
+> back to detecting and repairing instead
+> ([docs/PERMISSIONS.md](docs/PERMISSIONS.md)). Installers are still
+> **unsigned**. See [docs/PLAN.md](docs/PLAN.md) for the full plan and
+> [CHANGELOG.md](CHANGELOG.md) for what's in.
 
 ![PolterType settings window — Languages panel](docs/screenshots/settings-window.png)
 
@@ -80,7 +86,7 @@ is two requests: a `GET` of a small JSON manifest, and — only when
 there's actually a new version — a `GET` of the installer itself. No
 account, no identifier, nothing about you and nothing about what you
 type. What GitHub can see is what any download reveals: your IP, and
-a User-Agent naming the running version (`PolterType/0.5.0
+a User-Agent naming the running version (`PolterType/0.6.1
 (updater)`). The exact manifest URL is printed on the Settings
 window's **General** pane, so you never have to take our word for it.
 
@@ -172,6 +178,12 @@ good. The tooltip never steals keyboard focus and disappears after
 > layer-shell) and X11**. GNOME/KDE Wayland, macOS and Windows don't
 > have an overlay backend yet; there the feature stays engine-side
 > only.
+>
+> Where it lands depends on what the focused app will tell us. Apps
+> with a live accessibility bridge report the caret, and the tooltip
+> sits directly above it; everything else gets it just above the
+> window's bottom edge — the neighbourhood of chat boxes and shell
+> prompts. It is never placed by your mouse pointer.
 
 ## Smart commands (text triggers)
 
