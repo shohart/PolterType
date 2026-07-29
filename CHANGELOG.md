@@ -4,6 +4,53 @@ All notable changes to PolterType are recorded here. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] — PolterType actually runs on a Mac
+
+The macOS backend shipped in v0.5.0 had only ever been validated by
+`cargo check` on CI. This release is the first one runtime-tuned on
+real hardware (macOS 15, Intel) — and it turned out the previous
+build crashed on launch and never processed a single keystroke.
+
+### Fixed — macOS
+
+- **The app wouldn't launch from Finder at all.** The single-instance
+  lock was created under the process working directory, which is the
+  read-only system volume for GUI launches; startup aborted with
+  "Read-only file system". The lock now lives in the per-user config
+  directory.
+- **SIGILL seconds after launch.** HIToolbox asserts the main
+  dispatch queue inside Text Input Services on modern macOS; calling
+  TIS from the layout-poller / engine threads killed the process.
+  All TIS calls are now routed through the main dispatch queue.
+- **The keyboard tap delivered nothing.** The tap thread ran its
+  CFRunLoop in `kCFRunLoopCommonModes` as the run mode; the tap
+  source never fired. It now runs in the default mode.
+- **Every second word was skipped.** Emitted backspaces / retyped
+  text echoed back through the event tap untagged and poisoned the
+  word buffer after each correction. All posted events are now
+  stamped so the listener recognises them as injected.
+- **Words typed with Shift / Caps Lock broke or vanished.** The
+  keycode table had no modifier entries: right Shift and left Control
+  fell into the classifier's "end and discard" range, and Caps Lock
+  aliased onto Space, splitting words. Full modifier / navigation /
+  F-row mapping added; Caps Lock folds into the shift bit, matching
+  the X11 backend.
+- **Russian / Ukrainian layouts weren't detected** on systems with
+  the PC ("Win") input-source variants — `RussianWin` / `UkrainianWin`
+  (and `ABC`, the modern US id) are now mapped, and layout switching
+  matches sources by their mapped BCP-47 id.
+- **The app icon no longer lingers in the Dock.** tao applies the
+  Regular activation policy by default, overriding `LSUIElement`;
+  the tray app now runs as an Accessory process.
+
+### Added — macOS
+
+- When the event tap can't attach, PolterType now triggers the
+  system **Accessibility permission prompt** (previously it failed
+  silently and just logged). Note macOS also requires **Input
+  Monitoring** for key delivery — the system prompts for it on first
+  run.
+
 ## [0.5.0] — PolterType starts fixing your typos, not just your layout
 
 ### Added — spelling suggestions for plain typos
