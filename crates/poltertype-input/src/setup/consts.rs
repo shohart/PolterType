@@ -8,7 +8,7 @@
 /// code, which `-D warnings` treats as an error.
 #[cfg(target_os = "linux")]
 pub(super) const PERMISSIONS_URL: &str =
-    "https://github.com/Just-Code-NET/PolterType/blob/main/docs/PERMISSIONS.md";
+    "https://github.com/shohart/PolterType/blob/main/docs/PERMISSIONS.md";
 
 // ─── Linux ────────────────────────────────────────────────────────────
 

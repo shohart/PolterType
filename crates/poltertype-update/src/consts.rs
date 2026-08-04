@@ -11,7 +11,7 @@
 /// exact URL the app talks to — "it phones home" should be checkable
 /// rather than taken on faith.
 pub const MANIFEST_URL: &str =
-    "https://github.com/Just-Code-NET/PolterType/releases/latest/download/latest.json";
+    "https://github.com/shohart/PolterType/releases/latest/download/latest.json";
 
 /// Sent on every request so the traffic is attributable in GitHub's
 /// logs and we can be blocked cleanly if we ever misbehave.
