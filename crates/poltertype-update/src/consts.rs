@@ -12,7 +12,7 @@
 /// app talks to. "It phones home" is a claim the user should be able
 /// to check, not take on faith.
 pub const MANIFEST_URL: &str =
-    "https://github.com/Just-Code-NET/PolterType/releases/latest/download/latest.json";
+    "https://github.com/shohart/PolterType/releases/latest/download/latest.json";
 
 /// Sent on every request so the traffic is attributable in GitHub's
 /// logs and we can be blocked cleanly if we ever misbehave.
