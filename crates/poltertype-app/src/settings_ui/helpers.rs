@@ -375,8 +375,9 @@ pub fn is_modifier_key(key: &Key) -> bool {
 /// Render a captured `(modifiers, key)` combo as the canonical
 /// hotkey string `global-hotkey`'s `FromStr` accepts — `Ctrl+Shift+Space`,
 /// `Alt+F4`, etc. We use platform-portable names: `Ctrl` (not
-/// `Control`), `Cmd` for Meta on macOS, `Win` is intentionally
-/// avoided in favour of the more universal `Meta`.
+/// `Control`), and `Cmd` for the logo key — `global-hotkey`'s parser
+/// accepts COMMAND/CMD/SUPER but NOT `Meta`, so writing `Meta` here
+/// produced configs that failed to parse on the next launch.
 pub fn format_hotkey(key: &Key, modifiers: Modifiers) -> String {
     let mut parts: Vec<String> = Vec::new();
     if modifiers.control() {
@@ -389,9 +390,7 @@ pub fn format_hotkey(key: &Key, modifiers: Modifiers) -> String {
         parts.push("Shift".into());
     }
     if modifiers.logo() {
-        // global-hotkey accepts Meta / Super / Cmd / Win — use Meta
-        // for consistency with the upstream's docs.
-        parts.push("Meta".into());
+        parts.push("Cmd".into());
     }
     parts.push(key_to_string(key));
     parts.join("+")
