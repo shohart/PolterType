@@ -4,7 +4,21 @@ use global_hotkey::hotkey::{Code, HotKey, Modifiers as HkMods};
 use tracing::warn;
 
 pub(crate) fn parse_hotkey_or_default(s: &str, default_str: &str) -> HotKey {
-    match s.parse::<HotKey>() {
+    // global-hotkey's FromStr accepts COMMAND/CMD/SUPER for the logo
+    // key but NOT "Meta" — which is exactly what older builds of our
+    // Settings UI wrote into config.toml when the user captured a
+    // Cmd-combo. Normalise those legacy aliases first so existing
+    // configs keep working instead of silently falling back.
+    let normalised = s
+        .split('+')
+        .map(|tok| match tok.trim().to_ascii_lowercase().as_str() {
+            "meta" => "Cmd",
+            "win" => "Super",
+            _ => tok,
+        })
+        .collect::<Vec<_>>()
+        .join("+");
+    match normalised.parse::<HotKey>() {
         Ok(h) => h,
         Err(e) => {
             warn!(
