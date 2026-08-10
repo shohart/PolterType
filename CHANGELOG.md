@@ -4,6 +4,22 @@ All notable changes to PolterType are recorded here. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — 0.15.0
+
+### Added — macOS suggestion popup
+
+- macOS now displays spelling and layout suggestions in a clickable,
+  non-activating popup near the focused text field.
+- macOS Accessibility focus tracking resolves native carets and falls
+  back to text-field geometry for browsers and terminal applications
+  that expose unreliable caret bounds.
+
+### Fixed
+
+- macOS correction bursts are paced so replacement clicks do not lose
+  or duplicate characters at the delete/replay boundary.
+- Suggestion shortcut hints use macOS notation (`⌃⇧`) in the popup.
+
 ## [0.14.4] — the other half of the binary
 
 ### Fixed — half a signature is none
