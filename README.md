@@ -18,7 +18,7 @@ typed on an English layout comes out as `ma;ana` — PolterType fixes the
 word the moment it ends and switches the layout with it, so `por la
 tarde` lands correctly as typed.*
 
-> **Status: v0.37.0**, out of beta since v0.1.0. Windows, macOS and
+> **Status: v0.38.2**, out of beta since v0.1.0. Windows, macOS and
 > Linux (Wayland and X11, on the desktops in the table below) all
 > correct words end to end, and the spelling-suggestions tooltip
 > renders on all three. Installers are **unsigned**, so first launch
@@ -93,7 +93,7 @@ polls — you never download that one by hand):
 | OS                                | File                                          | How to install                                                                                                                                                                                                      |
 | --------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Windows 10 / 11                   | `poltertype-<ver>-x86_64-pc-windows-msvc.msi` | Double-click. Per-user install — no admin rights, no UAC prompt (Server editions disable per-user MSIs and answer 1625; there it needs an elevated install). SmartScreen may show "Windows protected your PC" → **More info** → **Run anyway**.                                                                 |
-| macOS 11+ (Intel + Apple Silicon) | `poltertype-<ver>-universal-apple-darwin.dmg` | Open the DMG, drag `poltertype.app` into `/Applications`. First launch: right-click the app → **Open** (or run `xattr -dr com.apple.quarantine /Applications/poltertype.app`). Then grant **Accessibility** and **Input Monitoring** — macOS prompts for both on first run. Expect to grant them again after an update: without a Developer ID the app is identified by the hash of its own bytes, so a new version is, to macOS, different software. |
+| macOS 11+ (Intel + Apple Silicon) | `poltertype-<ver>-universal-apple-darwin.dmg` | Open the DMG, drag `poltertype.app` into `/Applications`. First launch: right-click the app → **Open** — on macOS 15 and later, open it once, then click **Open Anyway** under System Settings → Privacy & Security — or run `xattr -dr com.apple.quarantine /Applications/poltertype.app`. Then grant **Input Monitoring** and **Accessibility** — macOS asks for the first itself, and if the second is missing PolterType says so and opens its Setup pane. Expect to grant them again after an update: without a Developer ID the app is identified by the hash of its own bytes, so a new version is, to macOS, different software. |
 | Linux (x86_64)                    | `poltertype-<ver>-x86_64.AppImage`            | `chmod +x` and run. Per-user, no system install. See [docs/PERMISSIONS.md](docs/PERMISSIONS.md) for evdev access on Wayland, and for NixOS, where an AppImage needs `programs.appimage.binfmt` to run at all.                                                                                        |
 | Linux (aarch64)                   | `poltertype-<ver>-aarch64.AppImage`           | Same, for ARM64 — Raspberry Pi 5, Asahi, ARM laptops and servers. Built natively, not cross-compiled.                                                                                                               |
 

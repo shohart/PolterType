@@ -130,7 +130,8 @@ There is no free path: Apple Developer Program membership ($99/year) is
 required for a Developer ID certificate and for notarisation, with no
 open-source exemption. Until it is bought, macOS users get the
 right-click → Open route, which the README, the site and the Homebrew
-cask all say plainly.
+cask all describe. macOS 15 dropped that shortcut; there the same step
+is **Open Anyway** under System Settings → Privacy & Security.
 
 The build script is ready for one: set `SIGN_IDENTITY` to a
 `Developer ID Application: …` identity and it signs with that instead,

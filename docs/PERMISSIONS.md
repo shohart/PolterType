@@ -23,13 +23,18 @@ The app needs **two** permissions, each granted once per machine:
 > System Settings → Privacy & Security → **Input Monitoring** → enable
 > *PolterType*.
 
-Why: `CGEventTapCreate(kCGSessionEventTap, …)` (used to listen) and
-`CGEventPost` (used to send corrections) require Accessibility;
-delivery of the key events themselves requires Input Monitoring.
-macOS prompts for both — Input Monitoring when the tap is created,
-Accessibility when the tap fails to attach without it. Granting only
-one leaves the app running with a tray icon and no corrections, which
-is why the tray alert below matters.
+Why: delivery of the key events to the listening tap,
+`CGEventTapCreate(kCGSessionEventTap, …)`, requires Input Monitoring;
+`CGEventPost`, which sends the corrections, requires Accessibility.
+The tap itself needs Accessibility only when the key gate is on
+(`[engine] hold_keys`), because it then holds events back instead of
+just observing them. macOS prompts for Input Monitoring when the tap
+is created, and for Accessibility only when the tap fails to attach —
+so with the default listen-only tap a missing Accessibility grant
+raises no dialog, and since v0.36.5 the tray says so instead with a
+**⚠ Words can't be corrected — Setup…** entry (issue #76). Granting
+only one leaves the app running with a tray icon and no corrections,
+which is why the tray alerts below matter.
 
 Since v0.15.0 the Accessibility grant does a second job: placing the
 suggestion tooltip. PolterType asks the focused application, over the
@@ -487,14 +492,16 @@ does work. The chosen backend is logged at startup either way
 (`layout switcher ready backend=…`), which is the first line to read
 in any report about switching.
 
-If none respond, PolterType **does not start**: it logs `no layout
-switcher backend; aborting` and exits. There is no degraded mode where
-the app sits in the tray unable to switch anything — a layout switcher
-is a hard requirement, not a nice-to-have.
+If none respond, PolterType still starts, but corrects nothing: it
+logs `no layout switcher backend; layout switching is off`, and the
+tray shows a **⚠ Layout switching unavailable — Setup…** entry that
+opens the Setup pane with the reason. Staying up keeps that
+explanation reachable, and a session that had not finished coming up
+when PolterType started no longer costs the user their autostart.
 
-(The separate case — keyboard *hooks* failing while layout switching
-works — does keep the app running, and surfaces the ⚠ Setup tray entry
-described under macOS above, which opens the Setup pane.)
+(Keyboard *hooks* failing while layout switching works is the same
+shape with the other entry, **⚠ Keyboard hooks unavailable — Setup…**,
+described under macOS above.)
 
 ## Clipboard
 
