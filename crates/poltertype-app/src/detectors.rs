@@ -14,6 +14,7 @@ use poltertype_detect::{DictionaryDetector, WordPlausibilityDetector};
 use poltertype_types::LayoutId;
 use tracing::{info, warn};
 
+use crate::consts::{WORDLIST_SETTLE, WORDLIST_SETTLE_ROUNDS};
 use crate::types::*;
 
 /// Build one dictionary set per configured wordlist profile, ready to
@@ -176,15 +177,19 @@ pub(crate) fn collect_dicts(
 
 /// Append `word` to the user's global overlay for `layout` and insert it
 /// into the running set in place. Deliberately not a full
-/// `reload_user_dictionaries`, which rebuilds every loaded dictionary.
+/// [`reload_all_wordlists`], which rebuilds every loaded dictionary —
+/// and which, with a profiled app focused, would re-apply that profile's
+/// set and drop the word from the very app it was added in.
 ///
-/// Known edge: while a per-app profile is active, the next profile swap
-/// replaces the in-memory set with its startup-built cache and hides
-/// the word until a restart. The file keeps it durable either way.
+/// The word also goes into the cached global set, so a later swap back
+/// to it does not hide the word until a restart. A profile's own cached
+/// set holds that profile's files, not the global overlay, so it is left
+/// alone. The folder is then recorded as seen, so the wordlists watcher
+/// does not reload over the change it already has.
 pub(crate) fn add_word_to_user_overlay(
     layout: &poltertype_types::LayoutId,
     word: &str,
-    handle: &DictionaryDetector,
+    w: &WordlistReload,
 ) -> anyhow::Result<()> {
     use std::io::Write as _;
     // One shape on disk and in memory. `parse_wordlist` runs every line
@@ -195,44 +200,36 @@ pub(crate) fn add_word_to_user_overlay(
     let dir = crate::user_dirs::ensure_user_wordlist_dir()?;
     let stem = layout.as_str().to_lowercase().replace('-', "_");
     let path = dir.join(format!("{stem}.txt"));
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
-    writeln!(f, "{word}")?;
-    let live = handle.add_overlay_word(layout, &word);
+    // Under the reload lock, so a reload cannot read the folder between
+    // the write and the stamp and then be skipped as already seen.
+    let mut seen = w.seen.lock();
+    {
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        writeln!(f, "{word}")?;
+    }
+    let live = w.dict_handle.add_overlay_word(layout, &word);
+    if let Some(global) = w.profile_dict_cache.write().get_mut("") {
+        if let Some(dict) = global.get_mut(layout) {
+            dict.add_overlay_entry(&word);
+        }
+    }
+    *seen = wordlist_stamp(&dir);
     // The word itself stays out of the log, as everywhere else.
     tracing::info!(%stem, live, "added a word to the user wordlist overlay");
     Ok(())
 }
 
-/// Re-read the user's wordlist overlays from disk and atomically swap the
-/// engine's dictionary set; returns how many loaded.
-///
-/// Only **global overlays for already-loaded layouts** are picked up
-/// live — the load-bearing case, adding vocabulary like `kubectl`.
-/// Brand-new user layouts and per-profile overlays still need a
-/// restart: the engine holds a snapshot `Arc<LayoutDb>` and the profile
-/// cache is built once at startup. Hotkeys do not — `config.toml` is
-/// watched and the chords are re-applied from it (issue #45).
-///
-/// `[[commands]]` text triggers are the exception: the engine reads them
-/// from `settings.snapshot()` on every word boundary.
-///
-/// Limited to the layouts `current` already holds. Unfiltered, this
-/// loaded every bundled language — each one's FST into memory and its
-/// dictionary into the engine's candidate set, keyboards the user does
-/// not even have (issue #76).
-pub(crate) fn reload_user_dictionaries(
-    handle: &DictionaryDetector,
-    current: &LayoutDb,
-    data_dir: &Path,
-) -> usize {
+/// Load the layouts `current` holds again, from disk, overlays and packs
+/// included. `None` (logged) when the load fails.
+fn load_fresh_layouts(current: &LayoutDb, data_dir: &Path) -> Option<LayoutDb> {
     let wordlist_dir = poltertype_core::layouts::user_wordlist_dir();
     let layout_dir = poltertype_core::layouts::user_layout_dir();
     let plugin_root = poltertype_core::plugins::user_root();
     let active: Vec<LayoutId> = current.ids().cloned().collect();
-    let new_layouts = match LayoutDb::load(poltertype_core::layouts::LoadOptions {
+    match LayoutDb::load(poltertype_core::layouts::LoadOptions {
         data_dir: Some(data_dir),
         active_filter: Some(&active),
         user_layout_dir: layout_dir.as_deref(),
@@ -240,22 +237,156 @@ pub(crate) fn reload_user_dictionaries(
         user_plugin_root: plugin_root.as_deref(),
         os_keymaps: None,
     }) {
-        Ok(db) => db,
+        Ok(db) => Some(db),
         Err(e) => {
             warn!(?e, "could not reload wordlists; keeping the current ones");
-            return 0;
+            None
         }
-    };
-    let new_dicts = collect_dicts(&new_layouts);
+    }
+}
+
+fn swap_in_global_dicts(handle: &DictionaryDetector, db: &LayoutDb) -> usize {
+    let new_dicts = collect_dicts(db);
     let n = new_dicts.len();
     handle.replace_dicts(new_dicts);
+    info!(loaded = n, "user wordlist overlays reloaded");
+    n
+}
+
+/// Re-read every wordlist from disk and atomically swap the engine's
+/// dictionary set; returns how many loaded. The per-profile cache is
+/// rebuilt from the same fresh load, and the profile watcher re-applies
+/// it on its next tick.
+///
+/// Rebuilding the cache here is new. Only the global set used to be
+/// reloaded, so the tray's "Reload Settings" did not reach a profile,
+/// and while a profiled app had focus it installed the *global* set
+/// until focus moved. Building the cache from the fresh load also picks
+/// up pack extras and profile files that changed since startup.
+///
+/// Brand-new user layouts still need a restart: the engine holds a
+/// snapshot `Arc<LayoutDb>`. Hotkeys do not — `config.toml` is watched
+/// and the chords are re-applied from it (issue #45). `[[commands]]`
+/// text triggers are read from `settings.snapshot()` on every word
+/// boundary.
+///
+/// Limited to the layouts already loaded. Unfiltered, this loaded every
+/// bundled language — each one's FST into memory and its dictionary
+/// into the engine's candidate set, keyboards the user does not even
+/// have (issue #76).
+pub(crate) fn reload_all_wordlists(w: &WordlistReload) -> usize {
+    // Held to the end: one reload at a time, and the stamp taken
+    // *before* reading, so a write landing mid-reload is still seen as
+    // a change by the watcher afterwards.
+    let mut seen = w.seen.lock();
+    if let Some(dir) = w.user_wordlist_dir.as_deref() {
+        *seen = wordlist_stamp(dir);
+    }
+    let Some(db) = load_fresh_layouts(&w.layouts, &w.data_dir) else {
+        return 0;
+    };
+    let n = swap_in_global_dicts(&w.dict_handle, &db);
+    let db = Arc::new(db);
+    let fresh_cache = build_full_profile_cache(
+        &db,
+        &w.data_dir,
+        &w.settings.snapshot().wordlists,
+        w.user_wordlist_dir.as_deref(),
+    );
+    let n_profiles = fresh_cache.len();
+    *w.profile_dict_cache.write() = fresh_cache;
+    w.profile_force_reapply.store(true, Ordering::Release);
     info!(
-        loaded = n,
-        wordlist_overlay = ?wordlist_dir,
-        layout_overlay = ?layout_dir,
-        "user wordlist overlays reloaded"
+        profiles = n_profiles,
+        "profile cache rebuilt; watcher will re-apply on next tick"
     );
     n
+}
+
+/// Stamp of the wordlists folder; see [`WordlistStamp`]. A missing
+/// folder is an empty stamp, so creating it with a file in it counts as
+/// a change.
+pub(crate) fn wordlist_stamp(dir: &Path) -> WordlistStamp {
+    fn add_txt_files(dir: &Path, out: &mut WordlistStamp) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("txt") {
+                continue;
+            }
+            if let Ok(m) = entry.metadata() {
+                if m.is_file() {
+                    out.push((path, m.len(), m.modified().ok()));
+                }
+            }
+        }
+    }
+    let mut out = WordlistStamp::new();
+    add_txt_files(dir, &mut out);
+    if let Ok(profiles) = std::fs::read_dir(dir.join("profiles")) {
+        for p in profiles.flatten() {
+            if p.file_type().is_ok_and(|t| t.is_dir()) {
+                add_txt_files(&p.path(), &mut out);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Notice wordlist files written by another program — a sync tool, a
+/// dotfiles checkout, an exporter — and reload them, the way
+/// `config.toml` is watched. Before, they did nothing until "Reload
+/// Settings" or a restart.
+///
+/// Polled rather than subscribed, like the config watcher: one
+/// directory listing a second is below noise, and it needs no
+/// per-platform notification backend. A change is applied once the
+/// folder has stopped moving for [`WORDLIST_SETTLE`], so an exporter
+/// rewriting ten files costs one reload, not ten.
+///
+/// The app's own writes do not: "add to dictionary" applies its word in
+/// place and then records the folder as seen (see
+/// [`add_word_to_user_overlay`]). A full reload there would re-apply the
+/// focused app's profile set, which holds that profile's files only, and
+/// take the word the user just added away from the app they added it in.
+pub(crate) fn spawn_wordlist_watcher(w: WordlistReload) -> Result<()> {
+    let Some(dir) = w.user_wordlist_dir.clone() else {
+        return Ok(());
+    };
+    std::thread::Builder::new()
+        .name("poltertype-wordlist-watcher".into())
+        .spawn(move || {
+            tracing::debug!(?dir, "wordlist watcher thread started");
+            loop {
+                std::thread::sleep(crate::consts::CONFIG_WATCH_INTERVAL);
+                let mut now = wordlist_stamp(&dir);
+                if now == *w.seen.lock() {
+                    continue;
+                }
+                // Wait for the writer to finish, within reason: a folder
+                // that never settles is still reloaded.
+                for _ in 0..WORDLIST_SETTLE_ROUNDS {
+                    std::thread::sleep(WORDLIST_SETTLE);
+                    let again = wordlist_stamp(&dir);
+                    if again == now {
+                        break;
+                    }
+                    now = again;
+                }
+                // Applied by the app meanwhile — its own write, or a
+                // reload from the tray or the Settings window.
+                if now == *w.seen.lock() {
+                    continue;
+                }
+                info!(?dir, "wordlists changed on disk; reloading them");
+                reload_all_wordlists(&w);
+            }
+        })
+        .context("spawn wordlist watcher thread")?;
+    Ok(())
 }
 
 // ─── AI plug-ins ──────────────────────────────────────────────────────

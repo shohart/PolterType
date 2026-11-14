@@ -1,4 +1,5 @@
-//! Tests for the AI plug-in gate.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+//! Tests for the AI plug-in gate, and for the wordlists folder stamp.
 //!
 //! What is being pinned here is the *gating*, not the detectors: that a
 //! disabled subsystem builds nothing, that an enabled one with no
@@ -139,4 +140,66 @@ fn a_retired_plugin_kind_is_skipped_without_taking_the_rest_down() {
     } else {
         assert!(built.is_empty());
     }
+}
+
+// ─── Wordlists folder stamp ─────────────────────────────────────
+
+/// A throwaway directory, removed on drop.
+struct ScratchDir(std::path::PathBuf);
+
+impl ScratchDir {
+    fn new(label: &str) -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "poltertype-app-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&path).expect("mkdir scratch");
+        Self(path)
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// What the watcher compares: a written, grown or added `.txt` — in the
+/// folder or a profile's — changes the stamp; anything else does not.
+#[test]
+fn wordlist_stamp_sees_overlay_and_profile_files_only() {
+    use super::wordlist_stamp;
+
+    let dir = ScratchDir::new("stamp");
+    let empty = wordlist_stamp(&dir.0);
+    assert!(empty.is_empty());
+
+    std::fs::write(dir.0.join("README.txt.bak"), "x").unwrap();
+    std::fs::write(dir.0.join("notes.md"), "x").unwrap();
+    assert_eq!(wordlist_stamp(&dir.0), empty, "non-.txt files are ignored");
+
+    std::fs::write(dir.0.join("en_us.txt"), "GitHub\n").unwrap();
+    let one = wordlist_stamp(&dir.0);
+    assert_eq!(one.len(), 1);
+
+    std::fs::write(dir.0.join("en_us.txt"), "GitHub\nkubectl\n").unwrap();
+    let grown = wordlist_stamp(&dir.0);
+    assert_ne!(grown, one, "a rewrite that changes the size is seen");
+
+    let profile = dir.0.join("profiles").join("code");
+    std::fs::create_dir_all(&profile).unwrap();
+    std::fs::write(profile.join("en_us.txt"), "serde\n").unwrap();
+    let with_profile = wordlist_stamp(&dir.0);
+    assert_eq!(with_profile.len(), 2, "profile files are watched too");
+
+    assert_eq!(
+        wordlist_stamp(&dir.0),
+        with_profile,
+        "stable when untouched"
+    );
+    assert!(wordlist_stamp(&dir.0.join("missing")).is_empty());
 }

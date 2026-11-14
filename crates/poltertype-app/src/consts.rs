@@ -97,9 +97,9 @@ PolterType — user wordlists
 ===========================
 
 Drop text files here to extend the built-in dictionaries without
-rebuilding the app. Changes are picked up on the next \"Reload
-Settings\" tray click (Ctrl+Shift+R if you've bound it) — no restart
-needed.
+rebuilding the app. Changes are picked up by themselves a second or
+so after a file here (or under profiles/) is saved — no restart, and
+no \"Reload Settings\" click needed.
 
 Per layout, three filenames are recognised. Replace `<stem>` with the
 layout id you want to extend (`en_us`, `uk_ua`, …):
@@ -163,6 +163,13 @@ pub(crate) const SWITCHER_PROBE_INTERVAL: std::time::Duration =
 /// machine's synced file. One `stat` a second is below noise, and the
 /// file is replaced atomically, so its size and mtime move together.
 pub(crate) const CONFIG_WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How long the wordlists folder must stay unchanged before a change to
+/// it is reloaded, so a program writing several files costs one reload.
+pub(crate) const WORDLIST_SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Most settle waits before reloading a folder that keeps changing.
+pub(crate) const WORDLIST_SETTLE_ROUNDS: usize = 10;
 
 /// How often a plug-in that reports state is re-asked while the user is
 /// not touching the menu. Slow on purpose: every tick costs one

@@ -505,9 +505,11 @@ The engine swaps the active overlay set when the focused app
 changes. See [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) for the
 full schema.
 
-Wordlist edits apply **without a restart**: closing the Settings
-window rebuilds the dictionaries, and "Reload Settings" in the tray
-does it for hand-edited files. Only the *bundled*
+Wordlist edits apply **without a restart**: the user wordlists folder
+and its profile subfolders are watched, so a file saved by hand, by a
+sync tool or by another program takes effect a second or so later.
+Closing the Settings window and "Reload Settings" in the tray rebuild
+them as well. Only the *bundled*
 `data/wordlists/*.txt` need a rebuild — those bake into the FST at
 compile time.
 
@@ -545,9 +547,9 @@ Logs land under the OS data dir; "Open Logs Folder…" in the tray takes
 you there. Edits apply **without a restart**: `config.toml` is watched,
 so a hotkey rebound and saved takes effect while the Settings window is
 still open, and a chord typed straight into the file takes effect the
-moment you save it. Closing the Settings window additionally picks up
-wordlists and profile overlays, and "Reload Settings" in the tray does
-the same on demand.
+moment you save it. The wordlists folder, profile overlays included, is
+watched the same way; closing the Settings window and "Reload Settings"
+in the tray also rebuild them on demand.
 
 The tray also carries **Pause auto-switch** — remembered across
 restarts, so an app you left paused comes back paused — **Open User

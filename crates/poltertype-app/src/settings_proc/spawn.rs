@@ -112,29 +112,13 @@ fn spawn_settings_ui_on(deps: SettingsCloseDeps, entry: SettingsEntry) {
                 },
             );
 
-            // Same path as the tray's "Reload Settings" menu entry.
-            let n =
-                reload_user_dictionaries(&deps.dict_reload_handle, &deps.layouts, &deps.data_dir);
+            // Same path as the tray's "Reload Settings" menu entry:
+            // global overlays and the per-profile cache, re-applied by
+            // the profile watcher on its next tick.
+            let n = reload_all_wordlists(&deps.wordlist_reload());
             info!(
                 loaded = n,
                 "wordlist dictionaries reloaded after settings UI exit"
-            );
-
-            // Rebuild even when no profiles are configured — an empty
-            // cache is cheap and keeps the contract uniform.
-            let snap = deps.settings.snapshot();
-            let fresh_cache = build_full_profile_cache(
-                &deps.layouts,
-                &deps.data_dir,
-                &snap.wordlists,
-                deps.user_wordlist_dir.as_deref(),
-            );
-            let n_profiles = fresh_cache.len();
-            *deps.profile_dict_cache.write() = fresh_cache;
-            deps.profile_force_reapply.store(true, Ordering::Release);
-            info!(
-                profiles = n_profiles,
-                "profile cache rebuilt; watcher will re-apply on next tick"
             );
 
             // Sent last so any observer sees the rebuilds before the

@@ -722,6 +722,25 @@ fn main() -> Result<()> {
         engine_cmd_tx.clone(),
     )?;
 
+    // One reload, shared by the tray, the Settings window and the
+    // wordlists-folder watcher.
+    let wordlist_reload = WordlistReload {
+        settings: Arc::clone(&settings),
+        layouts: Arc::clone(&layouts),
+        data_dir: data_dir.clone(),
+        user_wordlist_dir: user_wordlist_dir.clone(),
+        dict_handle: dict_reload_handle.handle(),
+        profile_dict_cache: Arc::clone(&profile_dict_cache),
+        profile_force_reapply: Arc::clone(&profile_force_reapply),
+        seen: Arc::new(parking_lot::Mutex::new(
+            user_wordlist_dir
+                .as_deref()
+                .map(wordlist_stamp)
+                .unwrap_or_default(),
+        )),
+    };
+    spawn_wordlist_watcher(wordlist_reload.clone())?;
+
     if !profile_dict_cache.read().is_empty() {
         spawn_profile_watcher(
             Arc::clone(&focus_tracker),
@@ -772,6 +791,7 @@ fn main() -> Result<()> {
             profile_force_reapply: Arc::clone(&profile_force_reapply),
             reload_tx: cmd_tx_for_loop.clone(),
             proxy: settings_proxy.clone(),
+            wordlists_seen: Arc::clone(&wordlist_reload.seen),
         });
     }
 
@@ -864,7 +884,7 @@ fn main() -> Result<()> {
                 {
                     // Same route as the tooltip's own row, so the two
                     // cannot drift apart: the engine owns no files.
-                    match add_word_to_user_overlay(&layout, &word, &dict_reload_handle) {
+                    match add_word_to_user_overlay(&layout, &word, &wordlist_reload) {
                         Ok(()) => {
                             deferred.take(&layout, &word);
                             rebuild_deferred_menu(
@@ -954,6 +974,7 @@ fn main() -> Result<()> {
                         profile_force_reapply: Arc::clone(&profile_force_reapply),
                         reload_tx: cmd_tx_for_loop.clone(),
                         proxy: settings_proxy.clone(),
+                        wordlists_seen: Arc::clone(&wordlist_reload.seen),
                     });
                 } else if id == about_id {
                     spawn_about_ui(SettingsCloseDeps {
@@ -966,6 +987,7 @@ fn main() -> Result<()> {
                         profile_force_reapply: Arc::clone(&profile_force_reapply),
                         reload_tx: cmd_tx_for_loop.clone(),
                         proxy: settings_proxy.clone(),
+                        wordlists_seen: Arc::clone(&wordlist_reload.seen),
                     });
                 } else if id == settings_file_id {
                     open_path(&settings_path, "settings file");
@@ -989,9 +1011,9 @@ fn main() -> Result<()> {
                     }
                 } else if id == reload_id {
                     // Also re-reads the user overlays, which is what
-                    // lets added vocabulary apply without a restart.
-                    let reloaded_dicts =
-                        reload_user_dictionaries(&dict_reload_handle, &layouts, &data_dir);
+                    // lets added vocabulary apply without a restart —
+                    // the per-profile cache included.
+                    let reloaded_dicts = reload_all_wordlists(&wordlist_reload);
                     match settings_for_loop.reload() {
                         Ok(changed) => {
                             info!(
@@ -1031,6 +1053,7 @@ fn main() -> Result<()> {
                         profile_force_reapply: Arc::clone(&profile_force_reapply),
                         reload_tx: cmd_tx_for_loop.clone(),
                         proxy: settings_proxy.clone(),
+                        wordlists_seen: Arc::clone(&wordlist_reload.seen),
                     });
                 }
             }
@@ -1088,7 +1111,7 @@ fn main() -> Result<()> {
                     word,
                     origin,
                 } => {
-                    match add_word_to_user_overlay(&layout, &word, &dict_reload_handle) {
+                    match add_word_to_user_overlay(&layout, &word, &wordlist_reload) {
                         // Only the implicit route announces itself —
                         // see `spawn_dictionary_add_notification`.
                         Ok(()) => {

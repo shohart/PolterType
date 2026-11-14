@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::SystemTime;
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 use crossbeam_channel::Sender;
 use poltertype_core::engine::EngineCommand;
@@ -128,7 +129,66 @@ pub(crate) struct SettingsCloseDeps {
     pub(crate) reload_tx: Sender<EngineCommand>,
     /// Announces the re-read to the tray, which owns the hotkey grabs.
     pub(crate) proxy: EventLoopProxy<crate::enums::UserEvent>,
+    /// Shared with every other wordlist reload; see [`WordlistReload::seen`].
+    pub(crate) wordlists_seen: Arc<Mutex<WordlistStamp>>,
 }
+
+/// Everything a full wordlist reload touches: the live dictionary set,
+/// the per-profile cache, and the watcher flag that re-applies it. One
+/// value, so the tray's "Reload Settings", the Settings window closing
+/// and the wordlists-folder watcher all reload the same way.
+pub(crate) struct WordlistReload {
+    pub(crate) settings: Arc<SettingsStore>,
+    pub(crate) layouts: Arc<LayoutDb>,
+    pub(crate) data_dir: PathBuf,
+    pub(crate) user_wordlist_dir: Option<PathBuf>,
+    pub(crate) dict_handle: poltertype_detect::DictionaryDetector,
+    pub(crate) profile_dict_cache: ProfileDictCache,
+    pub(crate) profile_force_reapply: Arc<AtomicBool>,
+    /// The wordlists folder as the last reload — or the app's own last
+    /// write — left it. The watcher reloads only when the folder differs
+    /// from this, so what the app itself already applied is not applied
+    /// again; and every reload holds the lock throughout, so the tray,
+    /// the Settings window and the watcher never reload at once.
+    pub(crate) seen: Arc<Mutex<WordlistStamp>>,
+}
+
+impl Clone for WordlistReload {
+    /// By hand: a `DictionaryDetector` is cloned as a handle to the
+    /// same shared set, which is what `handle()` is for.
+    fn clone(&self) -> Self {
+        Self {
+            settings: Arc::clone(&self.settings),
+            layouts: Arc::clone(&self.layouts),
+            data_dir: self.data_dir.clone(),
+            user_wordlist_dir: self.user_wordlist_dir.clone(),
+            dict_handle: self.dict_handle.handle(),
+            profile_dict_cache: Arc::clone(&self.profile_dict_cache),
+            profile_force_reapply: Arc::clone(&self.profile_force_reapply),
+            seen: Arc::clone(&self.seen),
+        }
+    }
+}
+
+impl SettingsCloseDeps {
+    pub(crate) fn wordlist_reload(&self) -> WordlistReload {
+        WordlistReload {
+            settings: Arc::clone(&self.settings),
+            layouts: Arc::clone(&self.layouts),
+            data_dir: self.data_dir.clone(),
+            user_wordlist_dir: self.user_wordlist_dir.clone(),
+            dict_handle: self.dict_reload_handle.handle(),
+            profile_dict_cache: Arc::clone(&self.profile_dict_cache),
+            profile_force_reapply: Arc::clone(&self.profile_force_reapply),
+            seen: Arc::clone(&self.wordlists_seen),
+        }
+    }
+}
+
+/// What the wordlists folder looks like from outside: every `*.txt` in
+/// it and in `profiles/<id>/`, with its size and mtime, sorted. Compared
+/// whole, like `config.toml`'s stamp.
+pub(crate) type WordlistStamp = Vec<(PathBuf, u64, Option<SystemTime>)>;
 
 #[cfg(test)]
 mod tests;
