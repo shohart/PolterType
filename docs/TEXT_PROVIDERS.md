@@ -180,8 +180,23 @@ instance only will refuse the second. During development,
 `POLTERTYPE_PLUGIN_PATH` can point at an uninstalled plug-in's
 directory.
 
-A provider in a few lines of Python, enough to see the contract work on
-every platform:
+`crates/poltertype-test-provider` is a provider that answers
+predictably — `suggest` offers the word capitalised and reversed,
+`rewrite` adds a capital and a full stop — for trying all of this
+without a model. Its `manifest.toml` beside `bin/poltertype-test-provider`
+(`.exe` on Windows) is an installable plug-in:
+
+```sh
+poltertype --install-plugin path/to/test-provider-kit
+poltertype --try-provider poltertype-test-provider "teh"
+#   suggest: Teh (0.90), het (0.50) — 0 ms
+#   rewrite: Teh. [punctuation] — 0 ms
+PT_TEST_PROVIDER_DELAY_MS=400 poltertype --try-provider poltertype-test-provider "teh"
+#   suggest: no opinion — 120 ms   (past its 120 ms deadline)
+```
+
+Or, in a few lines of Python, enough to see the contract work on every
+platform:
 
 ```python
 #!/usr/bin/env python3

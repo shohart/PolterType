@@ -676,3 +676,14 @@ fn a_provider_needs_a_service_to_talk_to() {
         Err(PluginError::BadProvider(_))
     ));
 }
+
+/// The test provider's own manifest is the example the docs point at;
+/// it must be one the loader accepts.
+#[test]
+fn the_test_providers_manifest_is_accepted() {
+    let text = include_str!("../../../../poltertype-test-provider/manifest.toml");
+    let v: toml::Value = toml::from_str(text).unwrap();
+    let m: ExtensionManifest = v.get("extension").unwrap().clone().try_into().unwrap();
+    assert!(m.text_provider.is_some());
+    check_extension(&m).unwrap();
+}

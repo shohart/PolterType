@@ -1,0 +1,17 @@
+# The test provider as a plug-in. `poltertype --install-plugin DIR`
+# takes a directory holding this file and `bin/poltertype-test-provider`
+# (`.exe` on Windows) — the release workflow's test kit is exactly that.
+id = "poltertype-test-provider"
+name = "Test text provider"
+version = "0.1.0"
+kind = "extension"
+
+[extension]
+exe = "poltertype-test-provider"
+service_args = ["serve"]
+summary = "Answers every request predictably, so the text-provider contract can be tried. Not for everyday use."
+
+[extension.text_provider]
+capabilities = ["suggest", "rewrite"]
+suggest_deadline_ms = 120
+rewrite_deadline_ms = 1500

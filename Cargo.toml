@@ -13,6 +13,7 @@ members = [
     "crates/poltertype-shell",
     "crates/poltertype-tray",
     "crates/poltertype-ipc",
+    "crates/poltertype-test-provider",
     "crates/poltertype-types",
     "crates/poltertype-icon",
     "xtask",
