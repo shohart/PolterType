@@ -8,6 +8,7 @@ use poltertype_types::LayoutId;
 use tracing::{info, warn};
 
 use super::files::{build_dictionary, parse_wordlist};
+use super::helpers::id_stem;
 use super::types::{DictSource, LayoutMapping, PluginManifest};
 
 /// Enumerate `<data_dir>/plugins/*/` and merge each pack's layouts into
@@ -236,7 +237,7 @@ pub fn apply_pack_extras(
     }
     let by_stem: HashMap<String, LayoutId> = by_id
         .keys()
-        .map(|id| (id.as_str().to_lowercase().replace('-', "_"), id.clone()))
+        .map(|id| (id_stem(id.as_str()), id.clone()))
         .collect();
 
     for (stem, words) in extras {

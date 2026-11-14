@@ -143,27 +143,44 @@ pub fn read_weak_words(data_dir: &Path, stem: &str) -> HashSet<String> {
 
 /// User-layout dictionary builder: like [`build_dictionary`] but
 /// without a bundled FST (user layouts can't ship binary blobs). The
-/// dictionary is purely the overlay files in `overlay_dir`.
-pub fn build_user_dictionary(stem: &str, overlay_dir: Option<&Path>) -> Option<LayoutDictionary> {
+/// dictionary is purely the overlay files in `overlay_dir`, read under
+/// each of `stems` in turn.
+///
+/// More than one stem because a user layout has two names: its TOML's
+/// file name, and the one derived from its id, which is what the
+/// Settings editor and "add to dictionary" write to. Reading only the
+/// first lost every word added from the GUI to a layout whose file is
+/// named otherwise.
+pub fn build_user_dictionary(
+    stems: &[&str],
+    overlay_dir: Option<&Path>,
+) -> Option<LayoutDictionary> {
     let mut user_overlay: HashSet<String> = HashSet::new();
     let mut short_stop_words: HashSet<String> = HashSet::new();
     let mut weak: HashSet<String> = HashSet::new();
     let mut any = false;
-    if let Some(extra) = load_overlay_file(overlay_dir, stem, "") {
-        user_overlay.extend(extra);
-        any = true;
-    }
-    if let Some(extra) = load_overlay_file(overlay_dir, stem, "-extras") {
-        user_overlay.extend(extra);
-        any = true;
-    }
-    if let Some(extra) = load_overlay_file(overlay_dir, stem, "-stop") {
-        short_stop_words.extend(extra);
-        any = true;
-    }
-    if let Some(extra) = load_overlay_file(overlay_dir, stem, "-weak") {
-        weak.extend(extra);
-        any = true;
+    let mut seen: Vec<&str> = Vec::new();
+    for &stem in stems {
+        if seen.contains(&stem) {
+            continue;
+        }
+        seen.push(stem);
+        if let Some(extra) = load_overlay_file(overlay_dir, stem, "") {
+            user_overlay.extend(extra);
+            any = true;
+        }
+        if let Some(extra) = load_overlay_file(overlay_dir, stem, "-extras") {
+            user_overlay.extend(extra);
+            any = true;
+        }
+        if let Some(extra) = load_overlay_file(overlay_dir, stem, "-stop") {
+            short_stop_words.extend(extra);
+            any = true;
+        }
+        if let Some(extra) = load_overlay_file(overlay_dir, stem, "-weak") {
+            weak.extend(extra);
+            any = true;
+        }
     }
     if !any {
         return None;

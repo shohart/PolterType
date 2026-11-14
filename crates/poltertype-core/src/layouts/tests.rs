@@ -1463,3 +1463,31 @@ fn profile_dictionaries_do_not_lend_a_user_layout_the_bundled_fst() {
     assert!(dict.contains("fromtheprofile"));
     assert!(!dict.contains("bundledword"));
 }
+
+/// A user layout has two names: its TOML's file name and the one its id
+/// gives, which is what the Settings editor and "add to dictionary"
+/// write to. Both are read, globally and in a profile.
+#[test]
+fn a_user_layouts_overlays_are_read_under_both_names() {
+    let layouts = TmpDir::new("two-names-layouts");
+    let overlay = TmpDir::new("two-names-overlay");
+    let profile = TmpDir::new("two-names-profile");
+    layouts.write(
+        "kazakh.toml",
+        &minimal_layout_toml("kk-KZ", "Қазақ", "Cyrillic"),
+    );
+    overlay.write("kazakh.txt", "файлатымен\n");
+    overlay.write("kk_kz.txt", "редактордан\n");
+    profile.write("kazakh.txt", "профильфайл\n");
+    profile.write("kk_kz.txt", "профильредактор\n");
+
+    let db = LayoutDb::load_with_user_layouts(Some(&layouts.0), Some(&overlay.0));
+    let dict = dict_of(&db, "kk-KZ");
+    assert!(dict.contains("файлатымен"));
+    assert!(dict.contains("редактордан"), "the GUI's file is read too");
+
+    let dicts = db.build_profile_dictionaries(&layouts.0, &profile.0);
+    let pdict = dicts.get(&LayoutId::from("kk-KZ")).expect("profile dict");
+    assert!(pdict.contains("профильфайл"));
+    assert!(pdict.contains("профильредактор"));
+}

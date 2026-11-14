@@ -105,3 +105,10 @@ pub fn compute_letter_scancodes(by_id: &HashMap<LayoutId, LayoutMapping>) -> Has
     }
     out
 }
+
+/// The file stem a layout id is written under by convention — bundled
+/// FSTs, and every overlay the Settings editor or "add to dictionary"
+/// writes: `en-US` → `en_us`.
+pub(crate) fn id_stem(id: &str) -> String {
+    id.to_lowercase().replace('-', "_")
+}

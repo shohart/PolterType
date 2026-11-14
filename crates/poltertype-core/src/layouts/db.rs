@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use super::consts::BUNDLED_LAYOUT_STEMS;
 use super::enums::LayoutLoadError;
 use super::files::*;
-use super::helpers::{compute_letter_scancodes, peek_layout_id};
+use super::helpers::{compute_letter_scancodes, id_stem, peek_layout_id};
 use super::os_keymap::apply_os_keymaps;
 use super::plugins::{apply_pack_extras, load_plugin_packs};
 use super::types::{DictSource, LayoutMapping, LoadOptions};
@@ -125,7 +125,11 @@ impl LayoutDb {
 
         if let Some(dir) = opts.user_layout_dir {
             for (stem, body) in read_user_layout_files(dir) {
-                let dictionary = build_user_dictionary(&stem, opts.user_wordlist_dir);
+                let id_stem = peek_layout_id(&body).map(|id| id_stem(&id));
+                let stems: Vec<&str> = std::iter::once(stem.as_str())
+                    .chain(id_stem.as_deref())
+                    .collect();
+                let dictionary = build_user_dictionary(&stems, opts.user_wordlist_dir);
                 match LayoutMapping::from_parts(&body, dictionary) {
                     Ok(layout) => {
                         let overriding = by_id.contains_key(&layout.id);
@@ -240,19 +244,20 @@ impl LayoutDb {
     ) -> HashMap<LayoutId, poltertype_detect::LayoutDictionary> {
         let mut out = HashMap::new();
         for (id, mapping) in &self.by_id {
+            // The name the Settings editor writes a profile's files by.
+            let by_id = id_stem(mapping.id.as_str());
             let (fst_dir, stem) = match self.sources.get(id) {
                 Some(src) => (src.dir.as_deref(), src.stem.clone()),
                 // Not recorded: the convention bundled FST names follow.
-                None => (
-                    Some(data_dir),
-                    mapping.id.as_str().to_lowercase().replace('-', "_"),
-                ),
+                None => (Some(data_dir), by_id.clone()),
             };
             let dict = fst_dir
                 .and_then(|dir| build_dictionary(dir, &stem, Some(profile_overlay_dir)))
                 // No FST: a user layout can still carry profile-specific
-                // words.
-                .or_else(|| build_user_dictionary(&stem, Some(profile_overlay_dir)));
+                // words, under either of its names.
+                .or_else(|| {
+                    build_user_dictionary(&[stem.as_str(), by_id.as_str()], Some(profile_overlay_dir))
+                });
             if let Some(mut dict) = dict {
                 if let Some(extra) = self.pack_extras.get(id) {
                     dict.user_overlay.extend(extra.iter().cloned());
