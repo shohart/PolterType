@@ -1491,3 +1491,45 @@ fn a_user_layouts_overlays_are_read_under_both_names() {
     assert!(pdict.contains("профильфайл"));
     assert!(pdict.contains("профильредактор"));
 }
+
+/// `poltertype --install-plugin` puts a pack under this user's root, not
+/// the install's data dir. The loader reads both, the user's copy of a
+/// pack winning over the install's.
+#[test]
+fn packs_installed_for_this_user_are_loaded_and_win() {
+    let data_dir = TmpDir::new("user-packs-data");
+    let user_root = TmpDir::new("user-packs-root");
+    write_bundled_en_us(&data_dir.0);
+    let shared = write_pack(&data_dir.0, "vocab");
+    std::fs::write(
+        shared.join("wordlists").join("en_us-extras.txt"),
+        "frominstall\n",
+    )
+    .unwrap();
+    let mine = write_pack(&user_root.0, "vocab");
+    std::fs::write(
+        mine.join("wordlists").join("en_us-extras.txt"),
+        "fromuser\n",
+    )
+    .unwrap();
+    let only_mine = write_pack(&user_root.0, "names");
+    std::fs::write(
+        only_mine.join("wordlists").join("en_us-extras.txt"),
+        "onlymine\n",
+    )
+    .unwrap();
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        user_plugin_root: Some(&user_root.0),
+        ..Default::default()
+    })
+    .expect("load");
+    let dict = dict_of(&db, "en-US");
+    assert!(dict.contains("fromuser"));
+    assert!(dict.contains("onlymine"));
+    assert!(
+        !dict.contains("frominstall"),
+        "the user's copy replaces the install's"
+    );
+}

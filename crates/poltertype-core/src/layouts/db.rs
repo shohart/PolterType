@@ -113,7 +113,9 @@ impl LayoutDb {
         // bundled ← plug-ins ← user-overlay and a user can still
         // override a plug-in with a TOML of the same id.
         // See docs/DATA_LAYOUT.md.
-        let extras = load_plugin_packs(data_dir, opts.user_wordlist_dir, &mut by_id, &mut sources);
+        let mut roots: Vec<&Path> = vec![data_dir];
+        roots.extend(opts.user_plugin_root);
+        let extras = load_plugin_packs(&roots, opts.user_wordlist_dir, &mut by_id, &mut sources);
 
         // What the OS says these keyboards really do — over everything
         // shipped, under the user's own TOMLs. A bundled mapping

@@ -256,12 +256,16 @@ fn main() -> Result<()> {
 
     let user_wordlist_dir = poltertype_core::layouts::user_wordlist_dir();
     let user_layout_dir = poltertype_core::layouts::user_layout_dir();
+    // Where `--install-plugin` puts a pack; without it a pack installed
+    // that way was never loaded.
+    let user_plugin_root = poltertype_core::plugins::user_root();
     let layouts = Arc::new(
         LayoutDb::load(poltertype_core::layouts::LoadOptions {
             data_dir: Some(&data_dir),
             active_filter: active_os_layouts.as_deref(),
             user_layout_dir: user_layout_dir.as_deref(),
             user_wordlist_dir: user_wordlist_dir.as_deref(),
+            user_plugin_root: user_plugin_root.as_deref(),
             os_keymaps: Some(&os_keymaps),
         })
         .context("load layout DB")?,

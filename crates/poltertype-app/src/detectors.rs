@@ -230,12 +230,14 @@ pub(crate) fn reload_user_dictionaries(
 ) -> usize {
     let wordlist_dir = poltertype_core::layouts::user_wordlist_dir();
     let layout_dir = poltertype_core::layouts::user_layout_dir();
+    let plugin_root = poltertype_core::plugins::user_root();
     let active: Vec<LayoutId> = current.ids().cloned().collect();
     let new_layouts = match LayoutDb::load(poltertype_core::layouts::LoadOptions {
         data_dir: Some(data_dir),
         active_filter: Some(&active),
         user_layout_dir: layout_dir.as_deref(),
         user_wordlist_dir: wordlist_dir.as_deref(),
+        user_plugin_root: plugin_root.as_deref(),
         os_keymaps: None,
     }) {
         Ok(db) => db,

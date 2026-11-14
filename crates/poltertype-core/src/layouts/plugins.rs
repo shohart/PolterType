@@ -11,8 +11,8 @@ use super::files::{build_dictionary, parse_wordlist};
 use super::helpers::id_stem;
 use super::types::{DictSource, LayoutMapping, PluginManifest};
 
-/// Enumerate `<data_dir>/plugins/*/` and merge each pack's layouts into
-/// `by_id`. Loud but graceful at every level — one broken pack never
+/// Enumerate `<root>/plugins/*/` for every root — the install's data
+/// dir, then this user's — and merge each pack's layouts into `by_id`. Loud but graceful at every level — one broken pack never
 /// takes down the rest of the load.
 ///
 /// **This loader reads data only.** From each pack it takes
@@ -27,32 +27,37 @@ use super::types::{DictSource, LayoutMapping, PluginManifest};
 /// layout an earlier one added words to, and the user's own TOMLs load
 /// after this. [`apply_pack_extras`] merges them once everything is in.
 pub fn load_plugin_packs(
-    data_dir: &Path,
+    roots: &[&Path],
     user_wordlist_dir: Option<&Path>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
     sources: &mut HashMap<LayoutId, DictSource>,
 ) -> Vec<(String, HashSet<String>)> {
-    let plugins_dir = data_dir.join("plugins");
-    let entries = match std::fs::read_dir(&plugins_dir) {
-        Ok(it) => it,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
-        Err(e) => {
-            warn!(?plugins_dir, err = %e, "could not enumerate plugins dir");
-            return Vec::new();
+    // One directory per pack name, a later root winning: the per-user
+    // install is listed after the install's own, so it replaces a copy
+    // of the same pack there, as it does for extensions.
+    let mut by_name: std::collections::BTreeMap<std::ffi::OsString, PathBuf> =
+        std::collections::BTreeMap::new();
+    for root in roots {
+        let plugins_dir = root.join("plugins");
+        let entries = match std::fs::read_dir(&plugins_dir) {
+            Ok(it) => it,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                warn!(?plugins_dir, err = %e, "could not enumerate plugins dir");
+                continue;
+            }
+        };
+        for e in entries.flatten() {
+            if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                by_name.insert(e.file_name(), e.path());
+            }
         }
-    };
+    }
 
     // Deterministic load order: two packs claiming the same layout id
     // resolve alphabetically, not by whatever the filesystem returned.
-    let mut pack_dirs: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .map(|e| e.path())
-        .collect();
-    pack_dirs.sort();
-
     let mut extras = Vec::new();
-    for pack_dir in pack_dirs {
+    for pack_dir in by_name.into_values() {
         extras.extend(load_one_pack(&pack_dir, user_wordlist_dir, by_id, sources));
     }
     extras

@@ -250,6 +250,12 @@ bundled one as it improves. The rules:
   does not inherit the bundled FST there.
 * The stem is the id lowercased with `-` → `_`, as for bundled FSTs.
 
+Packs are read from `<data_dir>/plugins/` and then from this user's
+`<data_local_dir>/poltertype/plugins/`, which is where
+`poltertype --install-plugin` puts them; a per-user copy of a pack
+replaces the install's copy of the same name. Before, a pack installed
+with that command was never loaded at all.
+
 The loader is **live as of 0.1.0-alpha.0**. `<data_dir>/plugins/`
 is enumerated at every `LayoutDb` load; each pack's
 `layout-mappings/*.toml` (with optional `wordlists/<stem>.fst` next

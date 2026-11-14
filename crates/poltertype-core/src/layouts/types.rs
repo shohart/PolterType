@@ -321,6 +321,11 @@ pub struct LoadOptions<'a> {
     pub user_layout_dir: Option<&'a Path>,
     /// `<config-dir>/poltertype/wordlists/` — user wordlist overlays.
     pub user_wordlist_dir: Option<&'a Path>,
+    /// This user's plug-in root (`plugins::user_root`), whose
+    /// `plugins/` holds packs `poltertype --install-plugin` installed.
+    /// Read after `<data_dir>/plugins/`, so a per-user copy of a pack
+    /// wins. `None` reads the install's packs only.
+    pub user_plugin_root: Option<&'a Path>,
     /// What the OS says the user's keyboards actually produce —
     /// typically `LayoutSwitcher::describe_keymaps()`. Each entry
     /// replaces the key table of the layout it names, because a
