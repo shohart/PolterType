@@ -11,12 +11,16 @@
 //!
 //! **Unix:** a socket in a freshly created directory of mode `0700`
 //! under `$XDG_RUNTIME_DIR` (or the temp dir), removed again on drop.
-//! **Windows:** not yet — [`Endpoint::bind`] says
-//! [`std::io::ErrorKind::Unsupported`]. A named pipe needs an owner-only
-//! ACL, and getting that wrong would hand typed words to other users of
-//! the machine, so it comes separately, where it can be tested.
+//! **Windows:** a named pipe with a random name, created as the first
+//! and only instance of that name, refusing remote clients, and with a
+//! DACL that admits this user's SID and nobody else. All I/O on it is
+//! overlapped, so a read waiting for the provider never holds a write up.
+//! **Anywhere else:** [`Endpoint::bind`] says
+//! [`std::io::ErrorKind::Unsupported`].
 
-#![forbid(unsafe_code)]
+// Denied rather than forbidden: the Windows module is all Win32 calls,
+// and allows it there alone.
+#![deny(unsafe_code)]
 
 mod types;
 
@@ -27,7 +31,12 @@ mod unix;
 #[cfg(unix)]
 pub use unix::*;
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+mod windows_impl;
+#[cfg(windows)]
+pub use windows_impl::*;
+
+#[cfg(not(any(unix, windows)))]
 mod unsupported;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub use unsupported::*;

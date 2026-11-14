@@ -415,8 +415,10 @@ fn provider_sleeper(out: &std::path::Path) -> DiscoveredExtension {
     let mut ext = sleeper(true);
     ext.id = "test-provider".to_owned();
     let script = if cfg!(windows) {
+        // Unquoted: Rust escapes inner quotes the way `cmd /C` does not
+        // read them, and the temp path has no spaces in it.
         format!(
-            "echo %POLTERTYPE_PROVIDER_SOCKET%> \"{}\" & {}",
+            "echo %POLTERTYPE_PROVIDER_SOCKET%>{} & {}",
             out.display(),
             stay_alive()
         )
@@ -491,10 +493,16 @@ fn consent_opens_a_channel_and_withdrawing_it_closes_one() {
     sup.start_all(&[provider_sleeper(&out)], &consent);
     assert_eq!(sup.providers().len(), 1);
     let socket = read_when_written(&out);
-    assert!(
-        std::path::Path::new(&socket).exists(),
-        "the service was told where its channel is"
-    );
+    let socket = socket.trim();
+    // A pipe name is not a file to stat; a socket is.
+    if cfg!(windows) {
+        assert!(socket.starts_with(r"\\.\pipe\poltertype-"), "{socket}");
+    } else {
+        assert!(
+            std::path::Path::new(socket).exists(),
+            "the service was told where its channel is"
+        );
+    }
 
     // Another plug-in's consent does not keep this one's channel open.
     let other = poltertype_core::settings::TextProviderSettings {

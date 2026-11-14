@@ -175,8 +175,8 @@ crates/
                                 and checks the dlopen'd appindicator
                                 library is there before it aborts us)
   poltertype-ipc/     library — the private local channel to a text
-                                provider: a 0700 socket on Unix; not
-                                yet on Windows
+                                provider: a 0700 socket on Unix, an
+                                owner-only named pipe on Windows
   poltertype-ai/      library — optional AI plug-ins (feature `ai`)
   poltertype-types/   library — shared types (LayoutId, KeyEvent, …)
   poltertype-icon/    library — the brand mark as geometry: RGBA, PNG and

@@ -3875,6 +3875,9 @@ dependencies = [
 [[package]]
 name = "poltertype-ipc"
 version = "0.40.0"
+dependencies = [
+ "windows 0.58.0",
+]
 
 [[package]]
 name = "poltertype-layout"

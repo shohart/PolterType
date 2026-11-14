@@ -105,9 +105,22 @@ extension is — see *Consent* above.
 
 **Unix:** the socket is in a directory created for it with mode `0700`
 under `$XDG_RUNTIME_DIR` (or the temp dir), removed on exit.
-**Windows:** not yet. A named pipe needs an owner-only ACL, and a
-mistake there would hand typed words to other users of the machine, so
-it comes separately. Until then the switch is shown disabled.
+
+**Windows:** a named pipe, `\\.\pipe\poltertype-<32 hex digits>`:
+
+- created with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so a name somebody else
+  created first is refused rather than shared, and with one instance;
+- `PIPE_REJECT_REMOTE_CLIENTS` — local connections only;
+- a protected DACL with a single entry, `D:P(A;;GA;;;<your SID>)`: your
+  account and nobody else, administrators and other sessions included.
+  Your SID rather than "owner rights", because an elevated process may
+  create objects owned by the Administrators group.
+
+A provider opens it like a file (`CreateFile`, read and write). It
+should ask for `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, so a
+process posing as the server could not act as it; `poltertype_ipc::connect`
+does. PolterType's own end is overlapped, so a read waiting on the
+provider never holds a write up.
 
 ## Messages
 
@@ -167,16 +180,21 @@ instance only will refuse the second. During development,
 `POLTERTYPE_PLUGIN_PATH` can point at an uninstalled plug-in's
 directory.
 
-A provider in a dozen lines of Python, enough to see the contract work:
+A provider in a few lines of Python, enough to see the contract work on
+every platform:
 
 ```python
 #!/usr/bin/env python3
 import json, os, socket, sys
 if sys.argv[1:] != ["serve"]:
     sys.exit(0)
-s = socket.socket(socket.AF_UNIX)
-s.connect(os.environ["POLTERTYPE_PROVIDER_SOCKET"])
-f = s.makefile("rw", encoding="utf-8", newline="\n")
+path = os.environ["POLTERTYPE_PROVIDER_SOCKET"]
+if path.startswith("\\\\.\\pipe\\"):          # Windows: a named pipe, opened as a file
+    f = open(path, "r+", encoding="utf-8", newline="\n", buffering=1)
+else:                                          # Unix: a socket
+    s = socket.socket(socket.AF_UNIX)
+    s.connect(path)
+    f = s.makefile("rw", encoding="utf-8", newline="\n")
 f.write(json.dumps({"hello": os.environ["POLTERTYPE_PROVIDER_TOKEN"]}) + "\n"); f.flush()
 for line in f:
     req = json.loads(line)

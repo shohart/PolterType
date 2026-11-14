@@ -12,6 +12,19 @@ publish.workspace     = true
 [lints]
 workspace = true
 
-# Nothing beyond `std`: a Unix socket and `/dev/urandom` are all the
-# Unix side needs, and the Windows side is not written yet.
+# Nothing beyond `std` on Unix: a socket and `/dev/urandom`.
 [dependencies]
+
+# The named pipe, its security descriptor and the system RNG. The same
+# crate and version `poltertype-input` already builds on Windows.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
