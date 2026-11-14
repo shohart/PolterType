@@ -352,6 +352,14 @@ thread while a menu is drawn, so its deadline is short; a report runs
 off it and gets longer. A pane that says "it did not answer" is
 honest, one that never renders is not.
 
+A **text provider** is an extension that offers help with what is
+typed — spelling candidates, a punctuated sentence. It is the one
+seam that hands typed words to another process, so it is opened only
+for a provider the user switched on in Settings, over a private local
+channel PolterType listens on, and every reply is checked before
+anything would be shown. The contract is
+[TEXT_PROVIDERS.md](TEXT_PROVIDERS.md).
+
 ### The tray menu a plug-in declares
 
 The same rule one storey down: a plug-in supplies text, PolterType

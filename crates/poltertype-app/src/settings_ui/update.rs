@@ -486,6 +486,22 @@ impl SettingsApp {
             // toggle where the session cannot do this, and a message
             // that arrives anyway must not write a setting the app
             // would then log a failure for on every press.
+            // Guarded like selection: the switch is drawn disabled
+            // where there is no transport, and only for a plug-in that
+            // declares a provider.
+            Message::ProviderConsentToggled(id, on) => {
+                let is_provider = self
+                    .plugins
+                    .iter()
+                    .any(|p| p.ext.id == id && p.ext.manifest.text_provider.is_some());
+                if is_provider && poltertype_ipc::Endpoint::SUPPORTED {
+                    let enabled = &mut self.settings.text_providers.enabled;
+                    enabled.retain(|e| *e != id);
+                    if on {
+                        enabled.push(id);
+                    }
+                }
+            }
             Message::SelectionEnabledToggled(b) => {
                 if self.selection_support.is_ok() {
                     self.settings.selection.enabled = b;

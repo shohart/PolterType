@@ -69,3 +69,19 @@ pub const MAX_PACK_BYTES: u64 = 256 * 1024 * 1024;
 /// Most files a pack may contain. Guards the enumeration itself, so a
 /// directory with a million entries cannot make installation hang.
 pub const MAX_PACK_FILES: usize = 512;
+
+/// Longest a `suggest` request may be given, in ms. The same ceiling as
+/// blocking AI mode (`poltertype_ai::MAX_BLOCKING_LATENCY_MS`): the
+/// suggestion tooltip waits on it, and past this the wait is felt.
+pub const SUGGEST_DEADLINE_CAP_MS: u64 = 250;
+
+/// Longest a `rewrite` request may be given, in ms. A rewrite is asked
+/// for by a hotkey and shown when it arrives, so it may take longer than
+/// a suggestion — but it is still bounded.
+pub const REWRITE_DEADLINE_CAP_MS: u64 = 5000;
+
+/// `suggest_deadline_ms` when the manifest names none.
+pub const DEFAULT_SUGGEST_DEADLINE_MS: u64 = 60;
+
+/// `rewrite_deadline_ms` when the manifest names none.
+pub const DEFAULT_REWRITE_DEADLINE_MS: u64 = 1500;

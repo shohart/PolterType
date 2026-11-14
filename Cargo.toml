@@ -12,6 +12,7 @@ members = [
     "crates/poltertype-autostart",
     "crates/poltertype-shell",
     "crates/poltertype-tray",
+    "crates/poltertype-ipc",
     "crates/poltertype-types",
     "crates/poltertype-icon",
     "xtask",
@@ -53,6 +54,7 @@ poltertype-shell  = { path = "crates/poltertype-shell" }
 poltertype-ai     = { path = "crates/poltertype-ai" }
 poltertype-popup  = { path = "crates/poltertype-popup" }
 poltertype-tray   = { path = "crates/poltertype-tray" }
+poltertype-ipc    = { path = "crates/poltertype-ipc" }
 # Build-time only: the app's icon resource and the installers' images
 # are drawn from the same geometry, so they cannot drift apart.
 poltertype-icon   = { path = "crates/poltertype-icon" }

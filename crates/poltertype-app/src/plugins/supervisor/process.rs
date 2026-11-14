@@ -20,6 +20,7 @@ pub(super) fn spawn(
     args: &[String],
     dir: &PathBuf,
     log: Option<&(PathBuf, std::fs::File)>,
+    extra_env: &[(&str, std::ffi::OsString)],
 ) -> std::io::Result<Child> {
     let mut cmd = Command::new(exe);
     cmd.args(args)
@@ -28,6 +29,9 @@ pub(super) fn spawn(
         .current_dir(dir)
         .stdin(Stdio::null());
     host_env(&mut cmd);
+    // The service's alone — never `host_env`, which one-shot commands
+    // share: a provider's channel is for the process it was opened for.
+    cmd.envs(extra_env.iter().map(|(k, v)| (*k, v)));
     // Both streams to the same file, in the order the plug-in wrote them.
     // Without a log file we inherit, which is right when there *is* a
     // terminal.

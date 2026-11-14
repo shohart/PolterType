@@ -582,3 +582,97 @@ fn a_row_action_must_know_what_the_row_is_called() {
         Err(PluginError::BadPane(_))
     ));
 }
+
+// ─── [extension.text_provider] ─────────────────────────────────
+
+fn provider_manifest(section: &str) -> ExtensionManifest {
+    let toml = format!(
+        r#"
+        [extension]
+        exe = "superdictate-bridge"
+        service_args = ["serve"]
+        [extension.text_provider]
+        {section}
+    "#
+    );
+    toml::from_str::<toml::Value>(&toml)
+        .unwrap()
+        .get("extension")
+        .unwrap()
+        .clone()
+        .try_into()
+        .unwrap()
+}
+
+#[test]
+fn the_proposals_provider_section_parses_and_is_accepted() {
+    let m = provider_manifest(
+        r#"capabilities = ["suggest", "rewrite"]
+        suggest_deadline_ms = 60
+        rewrite_deadline_ms = 1500"#,
+    );
+    let p = m.text_provider.as_ref().expect("section parsed");
+    assert!(p.offers(crate::plugins::ProviderCapability::Suggest));
+    assert!(p.offers(crate::plugins::ProviderCapability::Rewrite));
+    assert!(check_extension(&m).is_ok());
+}
+
+#[test]
+fn deadlines_default_when_unnamed() {
+    let m = provider_manifest(r#"capabilities = ["suggest"]"#);
+    let p = m.text_provider.as_ref().unwrap();
+    assert_eq!(
+        p.suggest_deadline_ms,
+        crate::plugins::DEFAULT_SUGGEST_DEADLINE_MS
+    );
+    assert_eq!(
+        p.rewrite_deadline_ms,
+        crate::plugins::DEFAULT_REWRITE_DEADLINE_MS
+    );
+    assert!(check_extension(&m).is_ok());
+}
+
+#[test]
+fn an_extension_without_the_section_is_not_a_provider() {
+    assert!(base().text_provider.is_none());
+}
+
+#[test]
+fn a_deadline_past_its_cap_is_refused() {
+    for section in [
+        "capabilities = [\"suggest\"]\nsuggest_deadline_ms = 251",
+        "capabilities = [\"rewrite\"]\nrewrite_deadline_ms = 5001",
+        "capabilities = [\"suggest\"]\nsuggest_deadline_ms = 0",
+    ] {
+        let m = provider_manifest(section);
+        assert!(
+            matches!(check_extension(&m), Err(PluginError::BadProvider(_))),
+            "{section}"
+        );
+    }
+}
+
+/// A newer provider still loads, as an unknown control kind does; one
+/// that offers nothing this version knows has nothing to be asked.
+#[test]
+fn unknown_capabilities_are_ignored_but_not_alone() {
+    let m = provider_manifest(r#"capabilities = ["suggest", "summarise"]"#);
+    assert!(check_extension(&m).is_ok());
+    for section in [r#"capabilities = ["summarise"]"#, "capabilities = []"] {
+        let m = provider_manifest(section);
+        assert!(matches!(
+            check_extension(&m),
+            Err(PluginError::BadProvider(_))
+        ));
+    }
+}
+
+#[test]
+fn a_provider_needs_a_service_to_talk_to() {
+    let mut m = provider_manifest(r#"capabilities = ["suggest"]"#);
+    m.service_args.clear();
+    assert!(matches!(
+        check_extension(&m),
+        Err(PluginError::BadProvider(_))
+    ));
+}

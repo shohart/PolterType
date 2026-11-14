@@ -174,6 +174,9 @@ crates/
                                 backend's deprecation warning off stderr,
                                 and checks the dlopen'd appindicator
                                 library is there before it aborts us)
+  poltertype-ipc/     library — the private local channel to a text
+                                provider: a 0700 socket on Unix; not
+                                yet on Windows
   poltertype-ai/      library — optional AI plug-ins (feature `ai`)
   poltertype-types/   library — shared types (LayoutId, KeyEvent, …)
   poltertype-icon/    library — the brand mark as geometry: RGBA, PNG and
@@ -303,7 +306,8 @@ language.
   `crossbeam-channel`; the engine processes them on a worker thread.
 * Platform code lives behind `cfg`-gated modules in `poltertype-input`,
   `poltertype-layout`, `poltertype-update`, `poltertype-popup`,
-  `poltertype-tray`, `poltertype-autostart` and `poltertype-shell`.
+  `poltertype-tray`, `poltertype-autostart`, `poltertype-shell` and
+  `poltertype-ipc`.
   The shape is one crate
   per *capability* with per-OS modules inside it — behind a trait and
   a factory where the caller holds a backend (`poltertype-layout`),

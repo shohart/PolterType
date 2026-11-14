@@ -240,6 +240,11 @@ impl SettingValue {
 
 #[derive(Debug, Error)]
 pub enum PluginError {
+    /// A `[extension.text_provider]` section that cannot be honoured —
+    /// nothing it offers is known here, a deadline past its cap, or no
+    /// service to talk to.
+    #[error("text provider is not usable: {0}")]
+    BadProvider(String),
     #[error("{0} does not exist or is not a directory")]
     NotADirectory(PathBuf),
     #[error("no {manifest} in {dir} — every pack needs one")]
@@ -294,4 +299,20 @@ impl PluginError {
             source,
         }
     }
+}
+
+/// One thing a text provider may answer. See
+/// [`super::TextProviderManifest`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderCapability {
+    /// Spelling candidates for one word, merged into the tooltip.
+    Suggest,
+    /// A rewritten sentence — punctuation, grammar — offered, never
+    /// applied without acceptance.
+    Rewrite,
+    /// Something a newer PolterType knows. Ignored, so the plug-in
+    /// still loads.
+    #[serde(other)]
+    Unknown,
 }

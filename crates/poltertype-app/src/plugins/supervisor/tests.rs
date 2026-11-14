@@ -87,7 +87,7 @@ fn dies_with(code: u8) -> DiscoveredExtension {
 #[test]
 fn a_service_is_started_and_then_stopped() {
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&sleeper(true)));
+    sup.start_all(std::slice::from_ref(&sleeper(true)), &Default::default());
     assert!(sup.is_running("test-sleeper"), "service should be running");
 
     sup.stop_all();
@@ -99,7 +99,7 @@ fn an_extension_with_no_service_starts_nothing() {
     // Most plug-ins will be command-only; starting a process for them
     // would be a process doing nothing forever.
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&sleeper(false)));
+    sup.start_all(std::slice::from_ref(&sleeper(false)), &Default::default());
     assert!(!sup.is_running("test-sleeper"));
 }
 
@@ -108,7 +108,7 @@ fn a_service_that_exits_is_reaped_and_reported_once() {
     let ext = dies_with(3);
 
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&ext));
+    sup.start_all(std::slice::from_ref(&ext), &Default::default());
 
     // Give the child a moment to be done; poll rather than assume.
     let mut gone = Vec::new();
@@ -174,7 +174,7 @@ fn the_last_thing_a_plugin_said_is_what_gets_quoted() {
 #[test]
 fn a_service_whose_log_could_not_be_opened_is_still_reaped() {
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&dies_with(2)));
+    sup.start_all(std::slice::from_ref(&dies_with(2)), &Default::default());
     for r in &mut sup.running {
         r.log = None;
     }
@@ -197,7 +197,7 @@ fn a_dead_service_is_not_restarted() {
     // see.
     let ext = dies_with(1);
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&ext));
+    sup.start_all(std::slice::from_ref(&ext), &Default::default());
     for _ in 0..50 {
         if !sup.reap().is_empty() {
             break;
@@ -224,7 +224,7 @@ fn an_undeclared_command_is_refused_rather_than_guessed() {
 #[test]
 fn stopping_twice_is_harmless() {
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&sleeper(true)));
+    sup.start_all(std::slice::from_ref(&sleeper(true)), &Default::default());
     sup.stop_all();
     sup.stop_all();
     assert!(!sup.is_running("test-sleeper"));
@@ -278,7 +278,7 @@ fn a_declared_stop_command_is_run_before_the_kill() {
     assert!(declares_stop(&ext), "the fixture must declare the command");
 
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&ext));
+    sup.start_all(std::slice::from_ref(&ext), &Default::default());
     assert!(sup.is_running("test-sleeper"), "service should be running");
 
     sup.stop_all();
@@ -305,7 +305,7 @@ fn a_plugin_without_a_stop_command_is_simply_killed() {
     assert!(!declares_stop(&ext));
 
     let mut sup = Supervisor::new();
-    sup.start_all(std::slice::from_ref(&ext));
+    sup.start_all(std::slice::from_ref(&ext), &Default::default());
     sup.stop_all();
     assert!(!sup.is_running("test-sleeper"));
 }
@@ -404,4 +404,105 @@ fn a_plugin_is_told_where_the_hosts_data_lives() {
     )
     .unwrap();
     assert_eq!(out.trim(), data.display().to_string());
+}
+
+// ─── Text providers ─────────────────────────────────────────────
+
+/// A sleeper that declares itself a text provider and writes what its
+/// environment says about a channel into `out`, then waits.
+fn provider_sleeper(out: &std::path::Path) -> DiscoveredExtension {
+    let (_, flag) = shell();
+    let mut ext = sleeper(true);
+    ext.id = "test-provider".to_owned();
+    let script = if cfg!(windows) {
+        format!(
+            "echo %POLTERTYPE_PROVIDER_SOCKET%> \"{}\" & {}",
+            out.display(),
+            stay_alive()
+        )
+    } else {
+        format!(
+            "printf '%s' \"${{POLTERTYPE_PROVIDER_SOCKET:-none}}\" > '{}'; {}",
+            out.display(),
+            stay_alive()
+        )
+    };
+    ext.manifest.service_args = vec![flag.to_owned(), script];
+    ext.manifest.text_provider = Some(poltertype_core::plugins::TextProviderManifest {
+        capabilities: vec![poltertype_core::plugins::ProviderCapability::Suggest],
+        ..Default::default()
+    });
+    ext
+}
+
+fn read_when_written(path: &std::path::Path) -> String {
+    for _ in 0..100 {
+        if let Ok(s) = std::fs::read_to_string(path) {
+            if !s.is_empty() {
+                return s;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    String::new()
+}
+
+fn scratch_file(label: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "poltertype-provider-{label}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ))
+}
+
+/// Installed is not switched on: without consent the service runs, but
+/// its environment names no channel and none is open.
+#[test]
+fn a_provider_without_consent_gets_no_channel() {
+    let out = scratch_file("no-consent");
+    let mut sup = Supervisor::new();
+    sup.start_all(&[provider_sleeper(&out)], &Default::default());
+    assert!(
+        sup.is_running("test-provider"),
+        "the plug-in itself still runs"
+    );
+    assert!(sup.providers().is_empty());
+    let seen = read_when_written(&out);
+    if !cfg!(windows) {
+        assert_eq!(seen, "none");
+    }
+    sup.stop_all();
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn consent_opens_a_channel_and_withdrawing_it_closes_one() {
+    if !poltertype_ipc::Endpoint::SUPPORTED {
+        return;
+    }
+    let out = scratch_file("consent");
+    let consent = poltertype_core::settings::TextProviderSettings {
+        enabled: vec!["test-provider".to_owned()],
+    };
+    let mut sup = Supervisor::new();
+    sup.start_all(&[provider_sleeper(&out)], &consent);
+    assert_eq!(sup.providers().len(), 1);
+    let socket = read_when_written(&out);
+    assert!(
+        std::path::Path::new(&socket).exists(),
+        "the service was told where its channel is"
+    );
+
+    // Another plug-in's consent does not keep this one's channel open.
+    let other = poltertype_core::settings::TextProviderSettings {
+        enabled: vec!["someone-else".to_owned()],
+    };
+    sup.revoke_providers(&other);
+    assert!(sup.providers().is_empty());
+    assert!(sup.is_running("test-provider"), "only the channel goes");
+    sup.stop_all();
+    let _ = std::fs::remove_file(&out);
 }

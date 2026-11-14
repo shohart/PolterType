@@ -1,0 +1,17 @@
+[package]
+name                  = "poltertype-ipc"
+description           = "A private local channel to one plug-in process, and its per-OS transport."
+version.workspace     = true
+edition.workspace     = true
+license.workspace     = true
+authors.workspace     = true
+rust-version.workspace = true
+repository.workspace  = true
+publish.workspace     = true
+
+[lints]
+workspace = true
+
+# Nothing beyond `std`: a Unix socket and `/dev/urandom` are all the
+# Unix side needs, and the Windows side is not written yet.
+[dependencies]

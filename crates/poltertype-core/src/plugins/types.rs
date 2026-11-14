@@ -63,6 +63,50 @@ pub struct ExtensionManifest {
     /// PolterType's shared tray icon — a plug-in may raise that dot,
     /// never replace the icon, draw on it or choose how it looks.
     pub attention_state_key: String,
+
+    /// `[extension.text_provider]`: what this plug-in answers when
+    /// PolterType asks it about a word or a sentence. `None` for every
+    /// plug-in that is not a provider. Declaring it grants nothing — the
+    /// user still has to switch the provider on in Settings, and only
+    /// then is a channel opened. See `docs/TEXT_PROVIDERS.md`.
+    pub text_provider: Option<TextProviderManifest>,
+}
+
+/// What a text provider declares it can do, and how long it may take.
+///
+/// The deadlines bound PolterType's own wait, never the provider's
+/// work: an answer that arrives later is dropped, as a correction that
+/// lands after the next word started would be corruption.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct TextProviderManifest {
+    /// What the provider answers. Unknown entries are ignored, so a
+    /// newer provider still loads here; one with no known entry left is
+    /// refused.
+    pub capabilities: Vec<super::ProviderCapability>,
+    /// How long a `suggest` may take, in ms, at most
+    /// [`super::SUGGEST_DEADLINE_CAP_MS`].
+    pub suggest_deadline_ms: u64,
+    /// How long a `rewrite` may take, in ms, at most
+    /// [`super::REWRITE_DEADLINE_CAP_MS`].
+    pub rewrite_deadline_ms: u64,
+}
+
+impl Default for TextProviderManifest {
+    fn default() -> Self {
+        Self {
+            capabilities: Vec::new(),
+            suggest_deadline_ms: super::DEFAULT_SUGGEST_DEADLINE_MS,
+            rewrite_deadline_ms: super::DEFAULT_REWRITE_DEADLINE_MS,
+        }
+    }
+}
+
+impl TextProviderManifest {
+    /// Whether the provider declared `cap`.
+    pub fn offers(&self, cap: super::ProviderCapability) -> bool {
+        self.capabilities.contains(&cap)
+    }
 }
 
 /// A tray submenu whose entries the plug-in supplies while the menu is

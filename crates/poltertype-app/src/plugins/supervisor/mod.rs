@@ -16,6 +16,7 @@
 //! | [`lifecycle`] | starting, reaping and stopping services |
 //! | [`commands`] | the plug-in command API: declared commands, state, reports |
 //! | [`process`] | spawning a child, and waiting on one with a deadline |
+//! | [`providers`] | whether a service gets a text-provider channel |
 //! | [`consts`] | timeouts and log-tail sizes the command API waits with |
 //! | [`types`] | `Running`, one supervised service |
 
@@ -23,6 +24,7 @@ mod commands;
 mod consts;
 mod lifecycle;
 mod process;
+mod providers;
 mod state;
 mod types;
 

@@ -1074,3 +1074,31 @@ fn search_reaches_every_section_but_asks_no_plugin_anything() {
     pane.select_section(2);
     assert!(!pane.searching(), "choosing a section ends the search");
 }
+
+/// A provider has a switch to show even when it has no settings of its
+/// own; without a card, consent could not be given at all.
+#[test]
+fn a_provider_with_no_controls_still_gets_a_card() {
+    let root = scratch("provider-card");
+    let mut ext = extension(Vec::new());
+    ext.manifest.text_provider = Some(poltertype_core::plugins::TextProviderManifest::default());
+    let panes = load_all(vec![ext], &root);
+    assert_eq!(panes.len(), 1);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// A plug-in named after PolterType's own config directory would write
+/// PolterType's settings — its own consent switch included.
+#[test]
+fn a_plugin_whose_config_dir_is_polterypes_own_is_not_shown() {
+    let Ok(own) = poltertype_core::settings::SettingsStore::default_path() else {
+        return;
+    };
+    let own_dir = own.parent().unwrap();
+    let (Some(root), Some(name)) = (own_dir.parent(), own_dir.file_name()) else {
+        return;
+    };
+    let mut ext = extension(vec![control(ControlKind::Toggle, "general.paused")]);
+    ext.id = name.to_string_lossy().into_owned();
+    assert!(load_all(vec![ext], root).is_empty());
+}

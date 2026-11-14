@@ -105,6 +105,16 @@ fn main() -> Result<()> {
                 };
                 return cli::print_plugin_strings(&id);
             }
+            "--try-provider" => {
+                let (Some(id), Some(text)) = (args.next(), args.next()) else {
+                    eprintln!("poltertype: --try-provider needs a plug-in id and some text");
+                    return Err(anyhow::anyhow!("missing provider id or text"));
+                };
+                let layout = args.next().unwrap_or_else(|| "en-US".to_owned());
+                // No `init_tracing`: it would take over the running
+                // tray's log files, as the comment above says.
+                return cli::try_provider(&id, &text, &layout);
+            }
             "--install-plugin" => {
                 let Some(dir) = args.next() else {
                     eprintln!("poltertype: --install-plugin needs the plug-in's directory");
@@ -578,7 +588,10 @@ fn main() -> Result<()> {
     let discovered = poltertype_core::plugins::extensions(&data_dir);
     let mut plugin_menu = plugins::PluginMenu::build(discovered, &menu)?;
     let mut supervisor = plugins::Supervisor::new();
-    supervisor.start_all(plugin_menu.extensions());
+    supervisor.start_all(
+        plugin_menu.extensions(),
+        &settings.snapshot().text_providers,
+    );
     for ext in plugin_menu.extensions() {
         info!(
             id = %ext.id,
@@ -821,6 +834,9 @@ fn main() -> Result<()> {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::UserEvent(UserEvent::SettingsChanged) => {
+                // A provider switched off stops seeing words now, not at
+                // the next restart.
+                supervisor.revoke_providers(&settings_for_loop.snapshot().text_providers);
                 // The interface language, which the menu cannot re-read
                 // on its own: these words were written when it was
                 // built, and this is the only process that outlives the
@@ -1023,6 +1039,8 @@ fn main() -> Result<()> {
                             );
                             if changed {
                                 let _ = cmd_tx_for_loop.send(EngineCommand::SettingsReloaded);
+                                supervisor
+                                    .revoke_providers(&settings_for_loop.snapshot().text_providers);
                                 let cfg = settings_for_loop.snapshot().hotkeys;
                                 active_hotkeys = apply_hotkeys(
                                     &cfg.pause_toggle,

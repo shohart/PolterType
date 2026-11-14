@@ -11,6 +11,7 @@ pub mod i18n;
 pub mod layouts;
 pub mod plugins;
 pub mod settings;
+pub mod text_provider;
 pub mod wordlist_profiles;
 
 pub use commands::{CommandAction, UserCommand};

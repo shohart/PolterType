@@ -148,6 +148,10 @@ impl SettingsApp {
             .color(b.muted),
         );
 
+        if pane.ext.manifest.text_provider.is_some() {
+            head = head.push(self.provider_consent(plugin));
+        }
+
         let sections = pane.sections();
         // The page's one scrolling region: the settings column when this
         // pane owns the window's height (so the section list stays put
@@ -203,6 +207,48 @@ impl SettingsApp {
         Container::new(card)
             .width(Length::Fill)
             .height(self.pane_height())
+            .into()
+    }
+
+    /// The switch that lets a text provider see what is typed.
+    ///
+    /// PolterType's own setting, not the plug-in's: it is stored in
+    /// PolterType's `config.toml`, drawn above the plug-in's pane, in
+    /// basic mode too, and says plainly what it hands over. Installing a
+    /// provider never switches it on.
+    fn provider_consent(&self, plugin: usize) -> Element<'_, Message> {
+        let b = self.brand();
+        let id = self.plugins[plugin].ext.id.clone();
+        let available = poltertype_ipc::Endpoint::SUPPORTED;
+        let on = available && self.settings.text_providers.allows(&id);
+        let mut checkbox = Checkbox::new(on)
+            .label(tr(
+                "plugins.provider_consent",
+                "Let this plug-in see the words you type",
+            ))
+            .text_size(13);
+        if available {
+            checkbox = checkbox.on_toggle(move |v| Message::ProviderConsentToggled(id.clone(), v));
+        }
+        let note = if available {
+            tr(
+                "plugins.provider_consent_note",
+                "It offers spelling and punctuation help. Switched on, every finished word \
+                 you type is sent to it — on this computer only — so it can suggest a \
+                 better one; nothing is changed unless you accept. Takes effect the next \
+                 time PolterType starts; switching it off takes effect at once.",
+            )
+        } else {
+            tr(
+                "plugins.provider_unavailable",
+                "This plug-in offers spelling help, which is not available on this \
+                 system yet.",
+            )
+        };
+        Column::new()
+            .spacing(4)
+            .push(checkbox)
+            .push(Text::new(note).size(11).color(b.muted))
             .into()
     }
 

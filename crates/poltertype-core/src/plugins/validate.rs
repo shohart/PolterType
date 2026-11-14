@@ -11,7 +11,8 @@
 //! every button and tray entry naming a command that exists; every
 //! stored control naming its config key.
 
-use super::enums::{ControlKind, PluginError};
+use super::consts::{REWRITE_DEADLINE_CAP_MS, SUGGEST_DEADLINE_CAP_MS};
+use super::enums::{ControlKind, PluginError, ProviderCapability};
 use super::types::ExtensionManifest;
 
 /// Refuse a manifest that would leave PolterType doing something
@@ -210,6 +211,53 @@ pub fn check_extension(m: &ExtensionManifest) -> Result<(), PluginError> {
         )));
     }
 
+    if let Some(p) = &m.text_provider {
+        check_text_provider(m, p)?;
+    }
+
+    Ok(())
+}
+
+/// A provider is talked to over a channel to its running service, so it
+/// needs one; it must offer something this PolterType knows; and its
+/// deadlines must be ones PolterType is prepared to wait.
+fn check_text_provider(
+    m: &ExtensionManifest,
+    p: &super::types::TextProviderManifest,
+) -> Result<(), PluginError> {
+    if m.service_args.is_empty() {
+        return Err(PluginError::BadProvider(
+            "a text provider needs service_args: the channel goes to its running service"
+                .to_owned(),
+        ));
+    }
+    if !p
+        .capabilities
+        .iter()
+        .any(|c| *c != ProviderCapability::Unknown)
+    {
+        return Err(PluginError::BadProvider(
+            "capabilities names nothing this version knows (suggest, rewrite)".to_owned(),
+        ));
+    }
+    for (name, value, cap) in [
+        (
+            "suggest_deadline_ms",
+            p.suggest_deadline_ms,
+            SUGGEST_DEADLINE_CAP_MS,
+        ),
+        (
+            "rewrite_deadline_ms",
+            p.rewrite_deadline_ms,
+            REWRITE_DEADLINE_CAP_MS,
+        ),
+    ] {
+        if value == 0 || value > cap {
+            return Err(PluginError::BadProvider(format!(
+                "{name} = {value} — it must be between 1 and {cap}"
+            )));
+        }
+    }
     Ok(())
 }
 

@@ -57,6 +57,10 @@ pub struct Settings {
     /// **Off by default** — see [`SelectionSettings`].
     #[serde(default)]
     pub selection: SelectionSettings,
+    /// Which installed text providers may see what is typed.
+    /// **Empty by default** — see [`TextProviderSettings`].
+    #[serde(default)]
+    pub text_providers: TextProviderSettings,
     /// Reserved for the AI subsystem (Phase 7). Disabled by default.
     #[serde(default)]
     pub ai: AiSettings,
@@ -86,6 +90,32 @@ pub struct SelectionSettings {
     pub enabled: bool,
 }
 
+/// The user's consent, per plug-in, to a text provider seeing typed
+/// words.
+///
+/// A text provider is the first seam that hands what the user types to
+/// another process, so installing one is not enough to switch it on:
+/// its id has to be listed here, which the Plugins pane does with a
+/// switch of its own. Unlisted, the plug-in still runs — its pane and
+/// tray entries work — but no channel is opened and it is not told
+/// where one would be.
+///
+/// This is consent, not containment. A plug-in runs as the user and
+/// could edit this file itself; installing it is the trust boundary
+/// against malicious code, as for every extension.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct TextProviderSettings {
+    /// Plug-in ids allowed to see typed words.
+    pub enabled: Vec<String>,
+}
+
+impl TextProviderSettings {
+    pub fn allows(&self, plugin_id: &str) -> bool {
+        self.enabled.iter().any(|id| id == plugin_id)
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -102,6 +132,7 @@ impl Default for Settings {
             suggestions: SuggestionSettings::default(),
             updates: UpdateSettings::default(),
             selection: SelectionSettings::default(),
+            text_providers: TextProviderSettings::default(),
             ai: AiSettings::default(),
         }
     }

@@ -4,28 +4,51 @@
 use poltertype_core::plugins::DiscoveredExtension;
 use tracing::{info, warn};
 
+use std::sync::Arc;
+
+use poltertype_core::settings::TextProviderSettings;
+
+use crate::plugins::ProviderLink;
 use crate::plugins::consts::STOP_COMMAND;
 use crate::plugins::types::Departed;
 
 use super::commands::{declares_stop, run_command};
 use super::process::{last_line, service_log, spawn};
+use super::providers::open_provider;
 use super::state::Supervisor;
 use super::types::Running;
 
 impl Supervisor {
     /// Start the service half of every extension that has one.
-    pub fn start_all(&mut self, extensions: &[DiscoveredExtension]) {
+    ///
+    /// A text provider the user has switched on (`consent`) gets its
+    /// channel opened first, so the service starts knowing where it is.
+    /// One not switched on starts exactly as any other plug-in: no
+    /// channel, and nothing in its environment naming one.
+    pub fn start_all(
+        &mut self,
+        extensions: &[DiscoveredExtension],
+        consent: &TextProviderSettings,
+    ) {
         for ext in extensions {
             if ext.manifest.service_args.is_empty() {
                 continue;
             }
+            let (provider, env) = open_provider(ext, consent);
             let log = service_log(&ext.id);
-            match spawn(&ext.exe, &ext.manifest.service_args, &ext.dir, log.as_ref()) {
+            match spawn(
+                &ext.exe,
+                &ext.manifest.service_args,
+                &ext.dir,
+                log.as_ref(),
+                &env,
+            ) {
                 Ok(child) => {
                     info!(
                         id = %ext.id,
                         pid = child.id(),
                         development = ext.development,
+                        provider = provider.is_some(),
                         log = ?log.as_ref().map(|(path, _)| path),
                         "plug-in service started"
                     );
@@ -34,11 +57,37 @@ impl Supervisor {
                         child,
                         ext: ext.clone(),
                         log: log.map(|(path, _)| path),
+                        provider,
                     });
                 }
                 Err(e) => warn!(id = %ext.id, "could not start plug-in service: {e}"),
             }
         }
+    }
+
+    /// Close the channel of every provider `consent` no longer lists.
+    ///
+    /// Withdrawing takes effect at once: the channel closes, the
+    /// provider sees it end, and nothing more is sent. Granting waits
+    /// for the next start, since the service has to be launched knowing
+    /// where its channel is.
+    pub fn revoke_providers(&mut self, consent: &TextProviderSettings) {
+        for r in &mut self.running {
+            if r.provider.is_some() && !consent.allows(&r.id) {
+                if let Some(link) = r.provider.take() {
+                    link.close();
+                }
+                info!(id = %r.id, "text provider switched off; its channel is closed");
+            }
+        }
+    }
+
+    /// The open provider channels, for whatever asks them.
+    pub fn providers(&self) -> Vec<Arc<ProviderLink>> {
+        self.running
+            .iter()
+            .filter_map(|r| r.provider.clone())
+            .collect()
     }
 
     /// Report any service that has exited since the last check, and

@@ -38,6 +38,7 @@ poltertype-detect = { workspace = true }
 poltertype-update = { workspace = true }
 poltertype-popup  = { workspace = true }
 poltertype-tray   = { workspace = true }
+poltertype-ipc    = { workspace = true }
 poltertype-autostart = { workspace = true }
 poltertype-shell  = { workspace = true }
 # The brand mark, for the Settings window's own icon. Same geometry
@@ -70,3 +71,8 @@ iced            = { workspace = true }
 # `poltertype-shell::notification_sender_ready`, so no `core-foundation`
 # here — this crate holds no platform code.
 notify-rust     = { workspace = true }
+
+[dev-dependencies]
+# The provider tests play a provider, which reads requests as JSON.
+# Already in the tree under `poltertype-core`.
+serde_json = { workspace = true }

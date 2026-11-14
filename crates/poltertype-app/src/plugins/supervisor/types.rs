@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::process::Child;
+use std::sync::Arc;
 
 use poltertype_core::plugins::DiscoveredExtension;
 
@@ -16,4 +17,8 @@ pub(super) struct Running {
     /// Where this service's own output went, if we managed to open a
     /// file for it. Read only when the service is gone.
     pub(super) log: Option<PathBuf>,
+    /// The text-provider channel, open only while the user allows this
+    /// plug-in to see typed words. `None` for every other plug-in, and
+    /// for this one once consent is withdrawn.
+    pub(super) provider: Option<Arc<crate::plugins::ProviderLink>>,
 }

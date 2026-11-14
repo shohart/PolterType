@@ -3783,12 +3783,14 @@ dependencies = [
  "poltertype-detect",
  "poltertype-icon",
  "poltertype-input",
+ "poltertype-ipc",
  "poltertype-layout",
  "poltertype-popup",
  "poltertype-shell",
  "poltertype-tray",
  "poltertype-types",
  "poltertype-update",
+ "serde_json",
  "tao",
  "tracing",
  "tracing-appender",
@@ -3820,6 +3822,7 @@ dependencies = [
  "poltertype-types",
  "rodio",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
  "toml 0.8.2",
  "toml_edit 0.20.2",
@@ -3868,6 +3871,10 @@ dependencies = [
  "x11rb",
  "zbus",
 ]
+
+[[package]]
+name = "poltertype-ipc"
+version = "0.40.0"
 
 [[package]]
 name = "poltertype-layout"
