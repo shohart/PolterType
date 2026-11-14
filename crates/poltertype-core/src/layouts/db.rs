@@ -11,7 +11,7 @@ use super::enums::LayoutLoadError;
 use super::files::*;
 use super::helpers::{compute_letter_scancodes, peek_layout_id};
 use super::os_keymap::apply_os_keymaps;
-use super::plugins::load_plugin_packs;
+use super::plugins::{apply_pack_extras, load_plugin_packs};
 use super::types::{LayoutMapping, LoadOptions};
 
 #[derive(Debug, Clone, Default)]
@@ -23,6 +23,11 @@ pub struct LayoutDb {
     /// typing them while the en-US layout is active (and vice-versa).
     /// Precomputed on load — cheap to query per-keystroke.
     letter_scancodes: HashSet<(u32, bool)>,
+    /// Words plug-in packs added to layouts through
+    /// `wordlists/<stem>-extras.txt`, per layout, already merged into
+    /// `by_id`. Kept so [`Self::build_profile_dictionaries`], which
+    /// rebuilds from the data dir and never sees packs, adds them too.
+    pack_extras: HashMap<LayoutId, HashSet<String>>,
 }
 
 impl LayoutDb {
@@ -98,7 +103,7 @@ impl LayoutDb {
         // bundled ← plug-ins ← user-overlay and a user can still
         // override a plug-in with a TOML of the same id.
         // See docs/DATA_LAYOUT.md.
-        load_plugin_packs(data_dir, opts.user_wordlist_dir, &mut by_id);
+        let extras = load_plugin_packs(data_dir, opts.user_wordlist_dir, &mut by_id);
 
         // What the OS says these keyboards really do — over everything
         // shipped, under the user's own TOMLs. A bundled mapping
@@ -131,10 +136,15 @@ impl LayoutDb {
             }
         }
 
+        // Last, so extras land on whichever mapping won its id — a
+        // bundled one, another pack's, or the user's own TOML.
+        let pack_extras = apply_pack_extras(extras, &mut by_id);
+
         let letter_scancodes = compute_letter_scancodes(&by_id);
         Ok(Self {
             by_id,
             letter_scancodes,
+            pack_extras,
         })
     }
 
@@ -211,14 +221,15 @@ impl LayoutDb {
             // real stem is its TOML filename, which is not tracked here,
             // so it falls back to the same shape.
             let stem = mapping.id.as_str().to_lowercase().replace('-', "_");
-            if let Some(dict) = build_dictionary(data_dir, &stem, Some(profile_overlay_dir)) {
-                out.insert(id.clone(), dict);
-            } else {
+            let dict = build_dictionary(data_dir, &stem, Some(profile_overlay_dir))
                 // No bundled FST and no profile overlay file: a user
                 // layout can still carry profile-specific words.
-                if let Some(dict) = build_user_dictionary(&stem, Some(profile_overlay_dir)) {
-                    out.insert(id.clone(), dict);
+                .or_else(|| build_user_dictionary(&stem, Some(profile_overlay_dir)));
+            if let Some(mut dict) = dict {
+                if let Some(extra) = self.pack_extras.get(id) {
+                    dict.user_overlay.extend(extra.iter().cloned());
                 }
+                out.insert(id.clone(), dict);
             }
         }
         out

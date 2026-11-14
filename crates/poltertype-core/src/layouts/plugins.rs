@@ -1,13 +1,13 @@
 //! Plug-in language packs: enumerate `<data_dir>/plugins/*/`
 //! and merge each pack's layouts into the load.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use poltertype_types::LayoutId;
 use tracing::{info, warn};
 
-use super::files::build_dictionary;
+use super::files::{build_dictionary, parse_wordlist};
 use super::types::{LayoutMapping, PluginManifest};
 
 /// Enumerate `<data_dir>/plugins/*/` and merge each pack's layouts into
@@ -20,18 +20,23 @@ use super::types::{LayoutMapping, PluginManifest};
 /// optional stop list in the same shape as `<data_dir>/wordlists/`;
 /// nothing here executes anything — see `docs/DATA_LAYOUT.md` and
 /// [`crate::plugins`] for the two plug-in kinds.
+///
+/// Returns every pack's `wordlists/<stem>-extras.txt`, parsed, in pack
+/// order. They are *not* merged here: a later pack may still replace a
+/// layout an earlier one added words to, and the user's own TOMLs load
+/// after this. [`apply_pack_extras`] merges them once everything is in.
 pub fn load_plugin_packs(
     data_dir: &Path,
     user_wordlist_dir: Option<&Path>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
-) {
+) -> Vec<(String, HashSet<String>)> {
     let plugins_dir = data_dir.join("plugins");
     let entries = match std::fs::read_dir(&plugins_dir) {
         Ok(it) => it,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
         Err(e) => {
             warn!(?plugins_dir, err = %e, "could not enumerate plugins dir");
-            return;
+            return Vec::new();
         }
     };
 
@@ -44,16 +49,21 @@ pub fn load_plugin_packs(
         .collect();
     pack_dirs.sort();
 
+    let mut extras = Vec::new();
     for pack_dir in pack_dirs {
-        load_one_pack(&pack_dir, user_wordlist_dir, by_id);
+        extras.extend(load_one_pack(&pack_dir, user_wordlist_dir, by_id));
     }
+    extras
 }
 
+/// Load one pack's layouts into `by_id` and return its extras, as
+/// [`load_plugin_packs`] describes. A pack refused for its manifest
+/// contributes no extras either.
 pub fn load_one_pack(
     pack_dir: &Path,
     user_wordlist_dir: Option<&Path>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
-) {
+) -> Vec<(String, HashSet<String>)> {
     let manifest_path = pack_dir.join("manifest.toml");
     let manifest_text = match std::fs::read_to_string(&manifest_path) {
         Ok(s) => s,
@@ -62,18 +72,18 @@ pub fn load_one_pack(
                 ?pack_dir,
                 "plug-in directory missing manifest.toml — skipping"
             );
-            return;
+            return Vec::new();
         }
         Err(e) => {
             warn!(?manifest_path, err = %e, "could not read plug-in manifest");
-            return;
+            return Vec::new();
         }
     };
     let manifest: PluginManifest = match toml::from_str(&manifest_text) {
         Ok(m) => m,
         Err(e) => {
             warn!(?manifest_path, err = %e, "invalid plug-in manifest TOML; skipping");
-            return;
+            return Vec::new();
         }
     };
     info!(
@@ -85,19 +95,26 @@ pub fn load_one_pack(
         "loading plug-in pack"
     );
 
+    let extras = read_pack_extras(pack_dir, &manifest.id);
+
+    // A pack may do nothing but add words to layouts it does not define, so
+    // `layout-mappings/` is optional — but a pack with neither is
+    // almost certainly a mistake worth a line in the log.
     let layouts_dir = pack_dir.join("layout-mappings");
     let entries = match std::fs::read_dir(&layouts_dir) {
         Ok(it) => it,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            warn!(
-                ?layouts_dir,
-                "plug-in pack has no layout-mappings/ directory"
-            );
-            return;
+            if extras.is_empty() {
+                warn!(
+                    ?layouts_dir,
+                    "plug-in pack has neither layout-mappings/ nor wordlist extras"
+                );
+            }
+            return extras;
         }
         Err(e) => {
             warn!(?layouts_dir, err = %e, "could not enumerate plug-in layouts");
-            return;
+            return extras;
         }
     };
 
@@ -140,4 +157,93 @@ pub fn load_one_pack(
             }
         }
     }
+    extras
+}
+
+/// Every `wordlists/<stem>-extras.txt` in one pack, parsed the way a
+/// user overlay is, sorted by file name so the order is the same on
+/// every filesystem. Unreadable files are logged and skipped; words are
+/// never logged, only how many.
+fn read_pack_extras(pack_dir: &Path, pack_id: &str) -> Vec<(String, HashSet<String>)> {
+    let dir = pack_dir.join("wordlists");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(it) => it,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => {
+            warn!(?dir, pack = pack_id, err = %e, "could not enumerate plug-in wordlists");
+            return Vec::new();
+        }
+    };
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    paths.sort();
+
+    let mut out = Vec::new();
+    for path in paths {
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some(stem) = name.strip_suffix("-extras.txt") else {
+            continue;
+        };
+        if stem.is_empty() {
+            continue;
+        }
+        match std::fs::read_to_string(&path) {
+            Ok(body) => {
+                let words = parse_wordlist(&body);
+                info!(
+                    pack = pack_id,
+                    stem,
+                    words = words.len(),
+                    "read plug-in wordlist extras"
+                );
+                out.push((stem.to_owned(), words));
+            }
+            Err(e) => {
+                warn!(?path, pack = pack_id, err = %e, "could not read plug-in wordlist extras")
+            }
+        }
+    }
+    out
+}
+
+/// Merge pack extras into the overlays of the layouts they name, and
+/// return what was merged per layout so profile dictionaries — which are
+/// rebuilt from the data dir and never see packs — can merge it too.
+///
+/// A stem names a layout by the file-name convention bundled FSTs use:
+/// the id lowercased, `-` → `_` (`ru_ru` → `ru-RU`). Extras for a layout
+/// that is not loaded are dropped — they never create one, so the
+/// active-layout filter holds. A layout with no dictionary at all is
+/// left without one: it is detected by plausibility only, and a handful
+/// of words is not a reason to change that.
+pub fn apply_pack_extras(
+    extras: Vec<(String, HashSet<String>)>,
+    by_id: &mut HashMap<LayoutId, LayoutMapping>,
+) -> HashMap<LayoutId, HashSet<String>> {
+    let mut merged: HashMap<LayoutId, HashSet<String>> = HashMap::new();
+    if extras.is_empty() {
+        return merged;
+    }
+    let by_stem: HashMap<String, LayoutId> = by_id
+        .keys()
+        .map(|id| (id.as_str().to_lowercase().replace('-', "_"), id.clone()))
+        .collect();
+
+    for (stem, words) in extras {
+        let Some(id) = by_stem.get(&stem) else {
+            info!(
+                stem,
+                "plug-in wordlist extras name a layout that is not loaded; ignored"
+            );
+            continue;
+        };
+        let Some(dict) = by_id.get_mut(id).and_then(|l| l.dictionary.as_mut()) else {
+            info!(layout = %id, "plug-in wordlist extras for a layout without a dictionary; ignored");
+            continue;
+        };
+        dict.user_overlay.extend(words.iter().cloned());
+        merged.entry(id.clone()).or_default().extend(words);
+    }
+    merged
 }

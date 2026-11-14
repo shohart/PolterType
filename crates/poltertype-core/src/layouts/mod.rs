@@ -19,7 +19,9 @@
 //! Two user override paths layer on top: `<config-dir>/poltertype/
 //! layouts/*.toml` adds whole layouts without a rebuild, and
 //! `wordlists/<stem>(-extras|-stop).txt` extends any layout's
-//! dictionary or short-stop list at runtime.
+//! dictionary or short-stop list at runtime. A plug-in pack can do the
+//! former too, for a layout it does not define, with its own
+//! `wordlists/<stem>-extras.txt`.
 
 mod consts;
 mod db;

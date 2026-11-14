@@ -205,6 +205,7 @@ has to satisfy:
   wordlists/                drops into the merged dictionary pool
     <stem>.fst
     <stem>-stop.txt
+    <stem>-extras.txt       words added to layout <stem>, whoever defines it
   i18n/                     UI translations (see below)
     <lang>.toml
   README.md                 optional human-readable description
@@ -225,6 +226,26 @@ need to learn a separate API, and conflict resolution (a pack
 overriding a bundled language) is the same `id` collision rule
 already in place for user-side TOMLs in
 `<config-dir>/poltertype/layouts/`.
+
+A pack does not have to define a layout to add words to one.
+`wordlists/<stem>-extras.txt` — one word per line, the shape of a user
+overlay — is merged into the dictionary of the loaded layout `<stem>`,
+whether that layout is bundled, comes from another pack or from the
+user's own TOML. So a pack that only wants to teach `ru_ru` some names
+ships `wordlists/ru_ru-extras.txt` and nothing else, instead of a copy
+of the Russian layout and its dictionary that would also shadow the
+bundled one as it improves. The rules:
+
+* `layout-mappings/` is optional; a pack with neither it nor any
+  extras is logged as probably a mistake.
+* Extras are merged after every pack and the user's TOMLs have loaded,
+  in pack order, so they land on whichever mapping won the id. They
+  are a union with the user's overlay; neither hides the other.
+* They never create a layout. Extras for a language that is not loaded
+  are ignored, and so are extras for a layout with no dictionary —
+  it stays plausibility-only.
+* Per-app profile dictionaries include them too.
+* The stem is the id lowercased with `-` → `_`, as for bundled FSTs.
 
 The loader is **live as of 0.1.0-alpha.0**. `<data_dir>/plugins/`
 is enumerated at every `LayoutDb` load; each pack's

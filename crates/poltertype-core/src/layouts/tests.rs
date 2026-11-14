@@ -1175,3 +1175,217 @@ fn bundled_arabic_digits_are_what_its_keyboard_types() {
     let ar = db.get(&LayoutId::from("ar")).expect("ar is bundled");
     assert_eq!(ar.translate_key(plain(0x02)), Some('1'));
 }
+
+// ─── Plug-in wordlist extras ───────────────────────────────────
+
+/// Write a pack under `<data_dir>/plugins/<id>/` with only a manifest.
+fn write_pack(data_dir: &std::path::Path, id: &str) -> PathBuf {
+    let pack = data_dir.join("plugins").join(id);
+    std::fs::create_dir_all(pack.join("wordlists")).unwrap();
+    std::fs::write(
+        pack.join("manifest.toml"),
+        format!("id=\"{id}\"\nname=\"{id}\"\nversion=\"0.0.1\"\n"),
+    )
+    .unwrap();
+    pack
+}
+
+/// Give `pack` its own `kk-KZ` layout with an (empty) FST, so it has a
+/// dictionary for extras to land in.
+fn write_pack_layout(pack: &std::path::Path, name: &str) {
+    std::fs::create_dir_all(pack.join("layout-mappings")).unwrap();
+    std::fs::write(
+        pack.join("layout-mappings").join("kk_kz.toml"),
+        minimal_layout_toml("kk-KZ", name, "Cyrillic"),
+    )
+    .unwrap();
+    std::fs::write(pack.join("wordlists").join("kk_kz.fst"), empty_fst_bytes()).unwrap();
+}
+
+/// Stand in for a bundled language: `en_us` is in `BUNDLED_LAYOUT_STEMS`,
+/// so a TOML and an FST under the data dir load it as bundled.
+fn write_bundled_en_us(data_dir: &std::path::Path) {
+    std::fs::create_dir_all(data_dir.join("layout-mappings")).unwrap();
+    std::fs::create_dir_all(data_dir.join("wordlists")).unwrap();
+    std::fs::write(
+        data_dir.join("layout-mappings").join("en_us.toml"),
+        minimal_layout_toml("en-US", "English", "Latin"),
+    )
+    .unwrap();
+    std::fs::write(
+        data_dir.join("wordlists").join("en_us.fst"),
+        empty_fst_bytes(),
+    )
+    .unwrap();
+}
+
+fn dict_of<'a>(db: &'a LayoutDb, id: &str) -> &'a poltertype_detect::LayoutDictionary {
+    db.get(&LayoutId::from(id))
+        .and_then(|l| l.dictionary.as_ref())
+        .unwrap_or_else(|| panic!("{id} should have a dictionary"))
+}
+
+/// The point of the feature: a pack with nothing but
+/// `wordlists/<stem>-extras.txt` adds words to a layout it does not
+/// define, instead of being refused for having no `layout-mappings/`.
+#[test]
+fn wordlist_only_pack_extends_a_bundled_layout() {
+    let data_dir = TmpDir::new("extras-bundled");
+    write_bundled_en_us(&data_dir.0);
+    let pack = write_pack(&data_dir.0, "vocab");
+    std::fs::write(
+        pack.join("wordlists").join("en_us-extras.txt"),
+        "# exported vocabulary\nGitHub\nkubectl\n",
+    )
+    .unwrap();
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        ..Default::default()
+    })
+    .expect("load");
+    let dict = dict_of(&db, "en-US");
+    assert!(
+        dict.contains("github"),
+        "extras are normalised like an overlay"
+    );
+    assert!(dict.contains("kubectl"));
+    assert_eq!(db.len(), 1, "a wordlist-only pack adds no layout");
+}
+
+/// Extras never create a layout: words for a language that is not
+/// loaded are dropped, so the active-layout filter still holds.
+#[test]
+fn extras_for_an_unloaded_layout_are_dropped() {
+    let data_dir = TmpDir::new("extras-unloaded");
+    write_bundled_en_us(&data_dir.0);
+    let pack = write_pack(&data_dir.0, "vocab");
+    std::fs::write(pack.join("wordlists").join("kk_kz-extras.txt"), "сөз\n").unwrap();
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        ..Default::default()
+    })
+    .expect("load");
+    assert!(db.get(&LayoutId::from("kk-KZ")).is_none());
+    assert!(!dict_of(&db, "en-US").contains("сөз"));
+}
+
+/// Packs load alphabetically and a later one may replace a layout
+/// outright. Extras from an earlier pack must survive that, which is
+/// why they are merged only after every pack is in.
+#[test]
+fn extras_survive_a_later_pack_redefining_the_layout() {
+    let data_dir = TmpDir::new("extras-order");
+    let early = write_pack(&data_dir.0, "a-vocab");
+    std::fs::write(early.join("wordlists").join("kk_kz-extras.txt"), "ерте\n").unwrap();
+    let late = write_pack(&data_dir.0, "b-layout");
+    write_pack_layout(&late, "FROM-B");
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        ..Default::default()
+    })
+    .expect("load");
+    assert_eq!(db.get(&LayoutId::from("kk-KZ")).unwrap().name, "FROM-B");
+    assert!(dict_of(&db, "kk-KZ").contains("ерте"));
+}
+
+/// A pack's extras next to its *own* layout apply too. Before, only a
+/// user overlay's `-extras.txt` was read, so this file did nothing.
+#[test]
+fn a_packs_extras_apply_to_its_own_layout() {
+    let data_dir = TmpDir::new("extras-own");
+    let pack = write_pack(&data_dir.0, "kk");
+    write_pack_layout(&pack, "Қазақ");
+    std::fs::write(pack.join("wordlists").join("kk_kz-extras.txt"), "өзінің\n").unwrap();
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        ..Default::default()
+    })
+    .expect("load");
+    assert!(dict_of(&db, "kk-KZ").contains("өзінің"));
+}
+
+/// Pack extras and the user's own overlay are a union; neither hides
+/// the other.
+#[test]
+fn pack_extras_and_user_overlay_both_apply() {
+    let data_dir = TmpDir::new("extras-user-data");
+    let overlay = TmpDir::new("extras-user-overlay");
+    write_bundled_en_us(&data_dir.0);
+    let pack = write_pack(&data_dir.0, "vocab");
+    std::fs::write(
+        pack.join("wordlists").join("en_us-extras.txt"),
+        "fromthepack\n",
+    )
+    .unwrap();
+    overlay.write("en_us.txt", "fromtheuser\n");
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        user_wordlist_dir: Some(&overlay.0),
+        ..Default::default()
+    })
+    .expect("load");
+    let dict = dict_of(&db, "en-US");
+    assert!(dict.contains("fromthepack"));
+    assert!(dict.contains("fromtheuser"));
+}
+
+/// Per-app profile dictionaries are rebuilt from the data dir and the
+/// profile's folder, never from packs. Without carrying the extras over,
+/// they would vanish whenever a profiled app has focus.
+#[test]
+fn profile_dictionaries_keep_pack_extras() {
+    let data_dir = TmpDir::new("extras-profile-data");
+    let profile = TmpDir::new("extras-profile-dir");
+    write_bundled_en_us(&data_dir.0);
+    let pack = write_pack(&data_dir.0, "vocab");
+    std::fs::write(
+        pack.join("wordlists").join("en_us-extras.txt"),
+        "fromthepack\n",
+    )
+    .unwrap();
+    profile.write("en_us.txt", "fromtheprofile\n");
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        ..Default::default()
+    })
+    .expect("load");
+    let dicts = db.build_profile_dictionaries(&data_dir.0, &profile.0);
+    let dict = dicts
+        .get(&LayoutId::from("en-US"))
+        .expect("en-US profile dict");
+    assert!(dict.contains("fromthepack"));
+    assert!(dict.contains("fromtheprofile"));
+}
+
+/// A layout with no dictionary is detected by plausibility alone; pack
+/// extras do not quietly change that.
+#[test]
+fn extras_do_not_give_a_dictionaryless_layout_a_dictionary() {
+    let data_dir = TmpDir::new("extras-nodict");
+    let pack = write_pack(&data_dir.0, "kk");
+    std::fs::create_dir_all(pack.join("layout-mappings")).unwrap();
+    std::fs::write(
+        pack.join("layout-mappings").join("kk_kz.toml"),
+        minimal_layout_toml("kk-KZ", "Қазақ", "Cyrillic"),
+    )
+    .unwrap();
+    std::fs::write(pack.join("wordlists").join("kk_kz-extras.txt"), "сөз\n").unwrap();
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        ..Default::default()
+    })
+    .expect("load");
+    assert!(
+        db.get(&LayoutId::from("kk-KZ"))
+            .unwrap()
+            .dictionary
+            .is_none()
+    );
+}
