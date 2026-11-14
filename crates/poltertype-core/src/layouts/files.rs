@@ -25,6 +25,36 @@ pub fn parse_wordlist(input: &str) -> HashSet<String> {
         .collect()
 }
 
+/// The lines of a wordlist as written: trimmed, without blanks and `#`
+/// comments. For overlays, whose written form is kept for suggestions
+/// ([`LayoutDictionary::add_overlay_entry`]); membership-only lists use
+/// [`parse_wordlist`].
+pub fn wordlist_lines(input: &str) -> Vec<String> {
+    input
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Add every line of `<dir>/<stem><suffix>.txt` to `dict`'s overlay as
+/// written. `true` if the file was there.
+pub fn merge_overlay_file(
+    dict: &mut LayoutDictionary,
+    overlay_dir: Option<&Path>,
+    stem: &str,
+    suffix: &str,
+) -> bool {
+    let Some(lines) = load_overlay_lines(overlay_dir, stem, suffix) else {
+        return false;
+    };
+    for line in &lines {
+        dict.add_overlay_entry(line);
+    }
+    true
+}
+
 /// Construct a [`LayoutDictionary`] for `stem` from the bundled FST and
 /// stop-word file in `<data_dir>/wordlists/`.
 ///
@@ -72,20 +102,16 @@ pub fn build_dictionary(
         short_stop_words.extend(extra);
     }
 
-    let mut user_overlay: HashSet<String> = HashSet::new();
-    if let Some(extra) = load_overlay_file(overlay_dir, stem, "") {
-        user_overlay.extend(extra);
-    }
-    if let Some(extra) = load_overlay_file(overlay_dir, stem, "-extras") {
-        user_overlay.extend(extra);
-    }
-
     let mut weak = read_weak_words(data_dir, stem);
     if let Some(extra) = load_overlay_file(overlay_dir, stem, "-weak") {
         weak.extend(extra);
     }
 
-    let mut dict = LayoutDictionary::new(bundled_fst, user_overlay, short_stop_words, weak);
+    let mut dict = LayoutDictionary::new(bundled_fst, HashSet::new(), short_stop_words, weak);
+    // `<stem>.txt` before `-extras.txt`: the first written form of a
+    // word is the one suggestions show.
+    merge_overlay_file(&mut dict, overlay_dir, stem, "");
+    merge_overlay_file(&mut dict, overlay_dir, stem, "-extras");
 
     // Surface-form FST (suggestions corpus), shared like the membership
     // one. Missing file is fine: older data dirs predate suggestions and
@@ -144,7 +170,8 @@ pub fn read_weak_words(data_dir: &Path, stem: &str) -> HashSet<String> {
 /// User-layout dictionary builder: like [`build_dictionary`] but
 /// without a bundled FST (user layouts can't ship binary blobs). The
 /// dictionary is purely the overlay files in `overlay_dir`, read under
-/// each of `stems` in turn.
+/// each of `stems` in turn — so the first stem's written form of a word
+/// wins.
 ///
 /// More than one stem because a user layout has two names: its TOML's
 /// file name, and the one derived from its id, which is what the
@@ -155,9 +182,8 @@ pub fn build_user_dictionary(
     stems: &[&str],
     overlay_dir: Option<&Path>,
 ) -> Option<LayoutDictionary> {
-    let mut user_overlay: HashSet<String> = HashSet::new();
-    let mut short_stop_words: HashSet<String> = HashSet::new();
-    let mut weak: HashSet<String> = HashSet::new();
+    let mut dict =
+        LayoutDictionary::from_overlay_only(HashSet::new(), HashSet::new(), HashSet::new());
     let mut any = false;
     let mut seen: Vec<&str> = Vec::new();
     for &stem in stems {
@@ -165,31 +191,18 @@ pub fn build_user_dictionary(
             continue;
         }
         seen.push(stem);
-        if let Some(extra) = load_overlay_file(overlay_dir, stem, "") {
-            user_overlay.extend(extra);
-            any = true;
-        }
-        if let Some(extra) = load_overlay_file(overlay_dir, stem, "-extras") {
-            user_overlay.extend(extra);
-            any = true;
-        }
+        any |= merge_overlay_file(&mut dict, overlay_dir, stem, "");
+        any |= merge_overlay_file(&mut dict, overlay_dir, stem, "-extras");
         if let Some(extra) = load_overlay_file(overlay_dir, stem, "-stop") {
-            short_stop_words.extend(extra);
+            dict.short_stop_words.extend(extra);
             any = true;
         }
         if let Some(extra) = load_overlay_file(overlay_dir, stem, "-weak") {
-            weak.extend(extra);
+            dict.weak.extend(extra);
             any = true;
         }
     }
-    if !any {
-        return None;
-    }
-    Some(LayoutDictionary::from_overlay_only(
-        user_overlay,
-        short_stop_words,
-        weak,
-    ))
+    any.then_some(dict)
 }
 
 /// Read `<dir>/<stem><suffix>.txt` if present and parse it. Returns
@@ -214,6 +227,29 @@ pub fn load_overlay_file(
                 "merged user wordlist override"
             );
             Some(parsed)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            warn!(?path, err = %e, "could not read user wordlist override");
+            None
+        }
+    }
+}
+
+/// Like [`load_overlay_file`] but the lines as written, for the overlay
+/// proper, whose written forms suggestions show.
+pub fn load_overlay_lines(
+    overlay_dir: Option<&Path>,
+    stem: &str,
+    suffix: &str,
+) -> Option<Vec<String>> {
+    let dir = overlay_dir?;
+    let path = dir.join(format!("{stem}{suffix}.txt"));
+    match std::fs::read_to_string(&path) {
+        Ok(s) => {
+            let lines = wordlist_lines(&s);
+            info!(?path, words = lines.len(), "merged user wordlist override");
+            Some(lines)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {

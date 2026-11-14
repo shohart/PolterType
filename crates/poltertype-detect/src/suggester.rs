@@ -23,7 +23,7 @@ use crate::geometry::KeyboardGeometry;
 use crate::lev_automaton::LevAutomaton;
 use crate::text::{letters_only_lower, surface_lower};
 use crate::traits::SuggestionProvider;
-use crate::types::Suggestion;
+use crate::types::{RawCandidate, Suggestion};
 
 /// Fuzzy-search suggestions provider over the hot-swappable dictionary
 /// set. Shares the [`DictionaryDetector`]'s inner state via a handle
@@ -51,15 +51,16 @@ impl Suggester {
 
     /// Collect raw candidate words for `typed` from `layout`'s surface
     /// FST (distance 1, then optionally 2) and user overlay.
-    /// Returned strings are canonicalised surface forms; the bool
-    /// marks weak-list entries.
-    fn raw_candidates(&self, layout: &LayoutId, typed: &str) -> Vec<(String, bool)> {
+    /// Each is `(candidate, weak, written)`: the canonicalised surface
+    /// form that is scored, whether it is on the weak list, and — for a
+    /// word the overlay holds as written — the form to show instead.
+    fn raw_candidates(&self, layout: &LayoutId, typed: &str) -> Vec<RawCandidate> {
         let typed_letters = typed.chars().filter(|c| c.is_alphabetic()).count();
         let typed_stripped = letters_only_lower(typed);
         self.dicts
             .with_dict(layout, |dict| {
                 let mut seen: HashSet<String> = HashSet::new();
-                let mut out: Vec<(String, bool)> = Vec::new();
+                let mut out: Vec<RawCandidate> = Vec::new();
 
                 if let Some(surface) = dict.surface.as_ref() {
                     for (pass, builder) in [&self.lev1, &self.lev2].into_iter().enumerate() {
@@ -80,8 +81,18 @@ impl Suggester {
                                 continue;
                             }
                             seen.insert(word.to_owned());
-                            let weak = dict.weak.contains(&letters_only_lower(word));
-                            out.push((word.to_owned(), weak));
+                            let membership = letters_only_lower(word);
+                            let weak = dict.weak.contains(&membership);
+                            // The dictionary knows `github`; the user
+                            // wrote `GitHub`. Only when the written form
+                            // is the same word down to its apostrophes
+                            // and hyphens, so `п'ять` never turns into a
+                            // differently punctuated overlay entry.
+                            let written = dict
+                                .overlay_surface_of(&membership)
+                                .filter(|w| surface_lower(w) == word)
+                                .map(str::to_owned);
+                            out.push((word.to_owned(), weak, written));
                         }
                     }
                 }
@@ -89,18 +100,22 @@ impl Suggester {
                 // Overlay entries are stored in the lossy membership
                 // shape, but they are explicit user intent: a
                 // whitelisted project word must be suggestable even
-                // though it lives outside the FST.
-                for word in &dict.user_overlay {
-                    let len = word.chars().count();
+                // though it lives outside the FST. Scored by how it was
+                // written where that is known, so `v-strel-zbook` is
+                // compared with its hyphens.
+                for key in &dict.user_overlay {
+                    let written = dict.overlay_surface_of(key);
+                    let cand = written.map_or_else(|| key.clone(), surface_lower);
+                    let len = key.chars().count();
                     if len < MIN_TOKEN_LETTERS
                         || len.abs_diff(typed_letters) > 2
-                        || *word == typed_stripped
-                        || seen.contains(word.as_str())
+                        || *key == typed_stripped
+                        || seen.contains(cand.as_str())
                     {
                         continue;
                     }
-                    seen.insert(word.clone());
-                    out.push((word.clone(), false));
+                    seen.insert(cand.clone());
+                    out.push((cand, false, written.map(str::to_owned)));
                 }
                 out
             })
@@ -136,10 +151,10 @@ impl SuggestionProvider for Suggester {
         let typed_chars: Vec<char> = typed.chars().collect();
         let geo = self.geometry.get(layout);
 
-        let mut scored: Vec<Suggestion> = self
+        let mut scored: Vec<(Suggestion, Option<String>)> = self
             .raw_candidates(layout, &typed)
             .into_iter()
-            .filter_map(|(cand, weak)| {
+            .filter_map(|(cand, weak, written)| {
                 let cand_chars: Vec<char> = cand.chars().collect();
                 let mut score = weighted_osa(&typed_chars, &cand_chars, geo);
                 if typed_chars.first() != cand_chars.first() {
@@ -157,12 +172,12 @@ impl SuggestionProvider for Suggester {
                     .take_while(|(a, b)| a == b)
                     .count();
                 score -= PREFIX_BONUS * prefix.min(PREFIX_BONUS_CAP) as f32;
-                (score <= MAX_SCORE).then_some(Suggestion { text: cand, score })
+                (score <= MAX_SCORE).then_some((Suggestion { text: cand, score }, written))
             })
             .collect();
 
         // Deterministic order: score, then closest length, then bytes.
-        scored.sort_by(|a, b| {
+        scored.sort_by(|(a, _), (b, _)| {
             a.score
                 .total_cmp(&b.score)
                 .then_with(|| {
@@ -176,17 +191,30 @@ impl SuggestionProvider for Suggester {
 
         // Restore the typed capitalisation. ALL-CAPS tokens never get
         // here (the engine suppresses them upstream), so first-letter
-        // title case is the only shape worth mirroring.
-        if typed_rendering
+        // title case is the only shape worth mirroring. A word the
+        // overlay holds with capitals in it is shown exactly so:
+        // `GitHub` is a spelling, not a sentence-start accident to be
+        // mirrored or undone. One written only with hyphens or
+        // apostrophes is still title-cased like any other.
+        let title = typed_rendering
             .chars()
             .find(|c| c.is_alphabetic())
-            .is_some_and(char::is_uppercase)
-        {
-            for s in &mut scored {
-                s.text = title_case(&s.text);
-            }
-        }
+            .is_some_and(char::is_uppercase);
         scored
+            .into_iter()
+            .map(|(mut s, written)| {
+                let has_capitals = written
+                    .as_deref()
+                    .is_some_and(|w| w.chars().any(char::is_uppercase));
+                if let Some(w) = written {
+                    s.text = w;
+                }
+                if title && !has_capitals {
+                    s.text = title_case(&s.text);
+                }
+                s
+            })
+            .collect()
     }
 }
 

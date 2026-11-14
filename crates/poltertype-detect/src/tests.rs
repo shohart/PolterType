@@ -895,6 +895,103 @@ fn overlay_words_are_suggestable() {
     assert_eq!(out[0].text, "kubectl");
 }
 
+/// Suggester over one layout whose overlay is filled line by line, as
+/// the loader does, so written forms are recorded.
+fn suggester_with_written_overlay(
+    layout: &LayoutId,
+    surface_words: &[&str],
+    lines: &[&str],
+    geometry: KeyboardGeometry,
+) -> Suggester {
+    let mut dict =
+        LayoutDictionary::from_overlay_only(HashSet::new(), HashSet::new(), HashSet::new())
+            .with_surface(surface_set(surface_words));
+    for line in lines {
+        dict.add_overlay_entry(line);
+    }
+    let mut dicts = HashMap::new();
+    dicts.insert(layout.clone(), dict);
+    let mut geo = HashMap::new();
+    geo.insert(layout.clone(), geometry);
+    Suggester::new(DictionaryDetector::new(dicts), geo)
+}
+
+/// §3.2: an overlay word is offered as it was written, not in its
+/// lowercase membership shape.
+#[test]
+fn overlay_words_are_suggested_as_written() {
+    let en = LayoutId::from("en-US");
+    let s = suggester_with_written_overlay(&en, &[], &["GitHub"], qwerty_geometry());
+    assert_eq!(s.suggest(&en, "githib", 5)[0].text, "GitHub");
+    // A capital typed at a sentence start does not undo the spelling.
+    assert_eq!(s.suggest(&en, "Githib", 5)[0].text, "GitHub");
+}
+
+#[test]
+fn written_form_applies_to_cyrillic_names() {
+    let uk = LayoutId::from("uk-UA");
+    let s = suggester_with_written_overlay(&uk, &[], &["Ничипуренко"], uk_geometry());
+    assert_eq!(s.suggest(&uk, "ничепуренко", 5)[0].text, "Ничипуренко");
+}
+
+/// Hyphens survive too: the membership key `vstrelzbook` was what got
+/// typed back before.
+#[test]
+fn written_form_keeps_hyphens_and_still_title_cases() {
+    let en = LayoutId::from("en-US");
+    let s = suggester_with_written_overlay(&en, &[], &["v-strel-zbook"], qwerty_geometry());
+    assert_eq!(s.suggest(&en, "v-strel-zbok", 5)[0].text, "v-strel-zbook");
+    // Lowercase as written, so a sentence-start capital is still
+    // mirrored like for any other word.
+    assert_eq!(s.suggest(&en, "V-strel-zbok", 5)[0].text, "V-strel-zbook");
+}
+
+/// When the bundled corpus has the word too, the overlay's spelling is
+/// what is shown.
+#[test]
+fn written_form_wins_over_the_bundled_lowercase_entry() {
+    let en = LayoutId::from("en-US");
+    let s = suggester_with_written_overlay(&en, &["github"], &["GitHub"], qwerty_geometry());
+    let out = s.suggest(&en, "githib", 5);
+    assert_eq!(out[0].text, "GitHub");
+    assert_eq!(
+        out.iter()
+            .filter(|c| c.text.eq_ignore_ascii_case("github"))
+            .count(),
+        1
+    );
+}
+
+/// The first written form of a key wins; later lines only add
+/// membership. The loader relies on this for precedence.
+#[test]
+fn first_written_form_wins() {
+    let mut dict =
+        LayoutDictionary::from_overlay_only(HashSet::new(), HashSet::new(), HashSet::new());
+    assert!(dict.add_overlay_entry("GitHub"));
+    assert!(dict.add_overlay_entry("GITHUB"));
+    assert_eq!(dict.overlay_surface_of("github"), Some("GitHub"));
+    // An entry already in lowercase claims its key too: a later
+    // capitalised copy does not override the user's lowercase choice.
+    assert!(dict.add_overlay_entry("kubectl"));
+    assert!(dict.add_overlay_entry("Kubectl"));
+    assert_eq!(dict.overlay_surface_of("kubectl"), None);
+    // Detection is unchanged: membership stays the lossy key.
+    assert!(dict.contains("github"));
+    assert!(!dict.add_overlay_entry("123"));
+}
+
+/// A line with a space in it keeps membership but no written form — a
+/// suggestion replaces one token.
+#[test]
+fn written_form_is_one_token() {
+    let mut dict =
+        LayoutDictionary::from_overlay_only(HashSet::new(), HashSet::new(), HashSet::new());
+    assert!(dict.add_overlay_entry("New York"));
+    assert!(dict.contains("newyork"));
+    assert_eq!(dict.overlay_surface_of("newyork"), None);
+}
+
 #[test]
 fn distance_two_is_gated_by_token_length() {
     let en = LayoutId::from("en-US");

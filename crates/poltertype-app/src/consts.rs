@@ -123,10 +123,14 @@ layout id you want to extend (`en_us`, `uk_ua`, …):
                         works for short tokens.
 
 Format for all three:
-    - one lowercase word per line
-    - letters only: digits and punctuation are stripped on load,
-      so `just-code.net` is stored as `justcodenet`. Words the
-      app adds for you are written in that same shape.
+    - one word per line
+    - for matching, case is ignored and digits and punctuation are
+      stripped on load, so `just-code.net` matches `justcodenet`.
+      Words the app adds for you are written in that shape.
+    - in <stem>.txt and <stem>-extras.txt, write a word the way it
+      should be spelled — `GitHub`, `v-strel-zbook` — and spelling
+      suggestions offer it exactly so. The first spelling of a word
+      wins, <stem>.txt before <stem>-extras.txt.
     - blank lines and `# comment` lines ignored
     - UTF-8
 

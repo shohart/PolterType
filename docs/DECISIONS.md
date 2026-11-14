@@ -3931,7 +3931,10 @@ fall back to `send_text`.
   would be lying about clickability.
 * Overlay-only words are suggested in their stripped form (user
   overlays are stored `letters_only_lower`); acceptable for the
-  project-jargon lists overlays hold.
+  project-jargon lists overlays hold. *Superseded:* the overlay now
+  also keeps each word's first written form (`GitHub`,
+  `v-strel-zbook`) beside the membership key, and suggestions render
+  that; detection still reads only the key (discussion #82, §3.2).
 
 **Alternatives considered.** An iced/winit popup window — rejected:
 winit can't position toplevels on Wayland at all, and a normal

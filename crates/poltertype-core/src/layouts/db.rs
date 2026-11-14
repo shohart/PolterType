@@ -27,7 +27,7 @@ pub struct LayoutDb {
     /// `wordlists/<stem>-extras.txt`, per layout, already merged into
     /// `by_id`. Kept so [`Self::build_profile_dictionaries`], which
     /// rebuilds from the data dir and never sees packs, adds them too.
-    pack_extras: HashMap<LayoutId, HashSet<String>>,
+    pack_extras: HashMap<LayoutId, Vec<String>>,
     /// Where each layout's dictionary files are, for rebuilding them.
     sources: HashMap<LayoutId, DictSource>,
 }
@@ -261,8 +261,8 @@ impl LayoutDb {
                     build_user_dictionary(&[stem.as_str(), by_id.as_str()], Some(profile_overlay_dir))
                 });
             if let Some(mut dict) = dict {
-                if let Some(extra) = self.pack_extras.get(id) {
-                    dict.user_overlay.extend(extra.iter().cloned());
+                for line in self.pack_extras.get(id).into_iter().flatten() {
+                    dict.add_overlay_entry(line);
                 }
                 out.insert(id.clone(), dict);
             }

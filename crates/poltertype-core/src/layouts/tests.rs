@@ -1533,3 +1533,36 @@ fn packs_installed_for_this_user_are_loaded_and_win() {
         "the user's copy replaces the install's"
     );
 }
+
+/// §3.2 at the loader: the user's file is read first, so where the user
+/// and a pack both define a word, the user's spelling is the one kept.
+#[test]
+fn the_users_written_form_beats_a_packs() {
+    let data_dir = TmpDir::new("surface-precedence-data");
+    let overlay = TmpDir::new("surface-precedence-overlay");
+    write_bundled_en_us(&data_dir.0);
+    let pack = write_pack(&data_dir.0, "vocab");
+    std::fs::write(
+        pack.join("wordlists").join("en_us-extras.txt"),
+        "GITHUB\nKubeCtl\n",
+    )
+    .unwrap();
+    overlay.write("en_us.txt", "GitHub\n");
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        user_wordlist_dir: Some(&overlay.0),
+        ..Default::default()
+    })
+    .expect("load");
+    let dict = dict_of(&db, "en-US");
+    assert_eq!(dict.overlay_surface_of("github"), Some("GitHub"));
+    assert_eq!(dict.overlay_surface_of("kubectl"), Some("KubeCtl"));
+
+    // Same order in a profile's rebuild: its own file, then the pack.
+    let profile = TmpDir::new("surface-precedence-profile");
+    profile.write("en_us.txt", "Github\n");
+    let dicts = db.build_profile_dictionaries(&data_dir.0, &profile.0);
+    let pdict = dicts.get(&LayoutId::from("en-US")).unwrap();
+    assert_eq!(pdict.overlay_surface_of("github"), Some("Github"));
+}

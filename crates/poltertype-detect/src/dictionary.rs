@@ -2,7 +2,7 @@
 //! curated overlays and, at runtime, the user's own added words. See
 //! [`crate::dictionary_detector`] for the detector built on top of it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 
 use fst::Set as FstSet;
@@ -56,6 +56,13 @@ pub struct LayoutDictionary {
     /// text, and `п'ять` must not degrade to `пять`. `None` when the
     /// layout ships no `<stem>-surface.fst`.
     pub surface: Option<Arc<FstSet<&'static [u8]>>>,
+    /// How the user (or a pack) wrote an overlay word, keyed by its
+    /// membership form in [`Self::user_overlay`]: `github` → `GitHub`,
+    /// `vstrelzbook` → `v-strel-zbook`. Read only when a suggestion is
+    /// rendered — detection never looks at it. Holds an entry only where
+    /// the written form differs from the key, and the first form read
+    /// for a key wins, so the loader's read order is the precedence.
+    pub overlay_surface: HashMap<String, String>,
 }
 
 impl LayoutDictionary {
@@ -91,6 +98,7 @@ impl LayoutDictionary {
             short_stop_words,
             weak,
             surface: None,
+            overlay_surface: HashMap::new(),
         }
     }
 
@@ -121,7 +129,34 @@ impl LayoutDictionary {
             short_stop_words,
             weak,
             surface: None,
+            overlay_surface: HashMap::new(),
         }
+    }
+
+    /// Add one overlay line as written: its membership form to
+    /// [`Self::user_overlay`], and the line itself to
+    /// [`Self::overlay_surface`] when it differs and no earlier line
+    /// claimed that key. A line with whitespace or control characters in
+    /// it keeps only its membership form — a suggestion is typed back as
+    /// one token. `false` when the line normalises to nothing.
+    pub fn add_overlay_entry(&mut self, line: &str) -> bool {
+        let line = line.trim();
+        let key = crate::text::letters_only_lower(line);
+        if key.is_empty() {
+            return false;
+        }
+        let renderable = !line.chars().any(|c| c.is_whitespace() || c.is_control());
+        if renderable && line != key && !self.user_overlay.contains(&key) {
+            self.overlay_surface.insert(key.clone(), line.to_owned());
+        }
+        self.user_overlay.insert(key);
+        true
+    }
+
+    /// The form to show for an overlay word, if it was written as
+    /// something other than its key.
+    pub fn overlay_surface_of(&self, key: &str) -> Option<&str> {
+        self.overlay_surface.get(key).map(String::as_str)
     }
 
     /// True iff `word_lowercase` is on this layout's curated weak

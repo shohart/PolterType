@@ -65,3 +65,8 @@ impl LayoutProfile {
         }
     }
 }
+
+/// One raw suggestion candidate: the canonicalised form that is scored,
+/// whether it is on the weak list, and the form to show instead when the
+/// overlay holds the word as written (`GitHub` for `github`).
+pub(crate) type RawCandidate = (String, bool, Option<String>);

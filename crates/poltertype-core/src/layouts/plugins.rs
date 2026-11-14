@@ -1,13 +1,13 @@
 //! Plug-in language packs: enumerate `<data_dir>/plugins/*/`
 //! and merge each pack's layouts into the load.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use poltertype_types::LayoutId;
 use tracing::{info, warn};
 
-use super::files::{build_dictionary, parse_wordlist};
+use super::files::{build_dictionary, wordlist_lines};
 use super::helpers::id_stem;
 use super::types::{DictSource, LayoutMapping, PluginManifest};
 
@@ -31,7 +31,7 @@ pub fn load_plugin_packs(
     user_wordlist_dir: Option<&Path>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
     sources: &mut HashMap<LayoutId, DictSource>,
-) -> Vec<(String, HashSet<String>)> {
+) -> Vec<(String, Vec<String>)> {
     // One directory per pack name, a later root winning: the per-user
     // install is listed after the install's own, so it replaces a copy
     // of the same pack there, as it does for extensions.
@@ -71,7 +71,7 @@ pub fn load_one_pack(
     user_wordlist_dir: Option<&Path>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
     sources: &mut HashMap<LayoutId, DictSource>,
-) -> Vec<(String, HashSet<String>)> {
+) -> Vec<(String, Vec<String>)> {
     let manifest_path = pack_dir.join("manifest.toml");
     let manifest_text = match std::fs::read_to_string(&manifest_path) {
         Ok(s) => s,
@@ -175,11 +175,11 @@ pub fn load_one_pack(
     extras
 }
 
-/// Every `wordlists/<stem>-extras.txt` in one pack, parsed the way a
-/// user overlay is, sorted by file name so the order is the same on
+/// Every `wordlists/<stem>-extras.txt` in one pack, as written (the
+/// lines a user overlay would hold), sorted by file name so the order is the same on
 /// every filesystem. Unreadable files are logged and skipped; words are
 /// never logged, only how many.
-fn read_pack_extras(pack_dir: &Path, pack_id: &str) -> Vec<(String, HashSet<String>)> {
+fn read_pack_extras(pack_dir: &Path, pack_id: &str) -> Vec<(String, Vec<String>)> {
     let dir = pack_dir.join("wordlists");
     let entries = match std::fs::read_dir(&dir) {
         Ok(it) => it,
@@ -205,7 +205,7 @@ fn read_pack_extras(pack_dir: &Path, pack_id: &str) -> Vec<(String, HashSet<Stri
         }
         match std::fs::read_to_string(&path) {
             Ok(body) => {
-                let words = parse_wordlist(&body);
+                let words = wordlist_lines(&body);
                 info!(
                     pack = pack_id,
                     stem,
@@ -233,10 +233,10 @@ fn read_pack_extras(pack_dir: &Path, pack_id: &str) -> Vec<(String, HashSet<Stri
 /// left without one: it is detected by plausibility only, and a handful
 /// of words is not a reason to change that.
 pub fn apply_pack_extras(
-    extras: Vec<(String, HashSet<String>)>,
+    extras: Vec<(String, Vec<String>)>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
-) -> HashMap<LayoutId, HashSet<String>> {
-    let mut merged: HashMap<LayoutId, HashSet<String>> = HashMap::new();
+) -> HashMap<LayoutId, Vec<String>> {
+    let mut merged: HashMap<LayoutId, Vec<String>> = HashMap::new();
     if extras.is_empty() {
         return merged;
     }
@@ -257,7 +257,11 @@ pub fn apply_pack_extras(
             info!(layout = %id, "plug-in wordlist extras for a layout without a dictionary; ignored");
             continue;
         };
-        dict.user_overlay.extend(words.iter().cloned());
+        // After the user's own overlay was read, so a word both define
+        // is shown the way the user wrote it.
+        for line in &words {
+            dict.add_overlay_entry(line);
+        }
         merged.entry(id.clone()).or_default().extend(words);
     }
     merged
