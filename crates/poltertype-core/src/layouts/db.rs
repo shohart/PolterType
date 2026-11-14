@@ -12,7 +12,7 @@ use super::files::*;
 use super::helpers::{compute_letter_scancodes, peek_layout_id};
 use super::os_keymap::apply_os_keymaps;
 use super::plugins::{apply_pack_extras, load_plugin_packs};
-use super::types::{LayoutMapping, LoadOptions};
+use super::types::{DictSource, LayoutMapping, LoadOptions};
 
 #[derive(Debug, Clone, Default)]
 pub struct LayoutDb {
@@ -28,6 +28,8 @@ pub struct LayoutDb {
     /// `by_id`. Kept so [`Self::build_profile_dictionaries`], which
     /// rebuilds from the data dir and never sees packs, adds them too.
     pack_extras: HashMap<LayoutId, HashSet<String>>,
+    /// Where each layout's dictionary files are, for rebuilding them.
+    sources: HashMap<LayoutId, DictSource>,
 }
 
 impl LayoutDb {
@@ -48,6 +50,7 @@ impl LayoutDb {
         };
 
         let mut by_id = HashMap::new();
+        let mut sources: HashMap<LayoutId, DictSource> = HashMap::new();
 
         for stem in BUNDLED_LAYOUT_STEMS {
             let toml_path = data_dir
@@ -91,6 +94,13 @@ impl LayoutDb {
                         dict = layout.dictionary.is_some(),
                         "loaded bundled layout"
                     );
+                    sources.insert(
+                        layout.id.clone(),
+                        DictSource {
+                            dir: Some(data_dir.to_path_buf()),
+                            stem: (*stem).to_owned(),
+                        },
+                    );
                     by_id.insert(layout.id.clone(), layout);
                 }
                 Err(e) => {
@@ -103,7 +113,7 @@ impl LayoutDb {
         // bundled ← plug-ins ← user-overlay and a user can still
         // override a plug-in with a TOML of the same id.
         // See docs/DATA_LAYOUT.md.
-        let extras = load_plugin_packs(data_dir, opts.user_wordlist_dir, &mut by_id);
+        let extras = load_plugin_packs(data_dir, opts.user_wordlist_dir, &mut by_id, &mut sources);
 
         // What the OS says these keyboards really do — over everything
         // shipped, under the user's own TOMLs. A bundled mapping
@@ -127,6 +137,13 @@ impl LayoutDb {
                             overriding,
                             "loaded user layout"
                         );
+                        sources.insert(
+                            layout.id.clone(),
+                            DictSource {
+                                dir: None,
+                                stem: stem.clone(),
+                            },
+                        );
                         by_id.insert(layout.id.clone(), layout);
                     }
                     Err(e) => {
@@ -145,6 +162,7 @@ impl LayoutDb {
             by_id,
             letter_scancodes,
             pack_extras,
+            sources,
         })
     }
 
@@ -202,13 +220,19 @@ impl LayoutDb {
     /// `DictionaryDetector::replace_dicts` accepts — from the overlay
     /// files in `profile_overlay_dir` rather than the global one.
     ///
-    /// Each entry reuses the layout's bundled FST through the `Arc` in
-    /// `LayoutDictionary`, so a caller can build every profile's set at
-    /// startup, cache it, and swap atomically on focus change without
-    /// rebuilding any FST.
+    /// Each entry reuses the layout's FST through the `Arc` in
+    /// `LayoutDictionary` (and the process-wide FST cache), so a caller
+    /// can build every profile's set at startup, cache it, and swap
+    /// atomically on focus change without rebuilding any FST.
     ///
-    /// Layouts with no FST in the data dir get an overlay-only
-    /// dictionary if the profile mentions them, and are skipped if not.
+    /// The FST is looked up where the layout's dictionary really came
+    /// from at load: the data dir for a bundled layout, the pack for a
+    /// pack's, none for a user's own TOML. `data_dir` is only the
+    /// fallback for a layout with no recorded source. Pack extras are
+    /// merged in, as at load.
+    ///
+    /// A layout with no FST gets an overlay-only dictionary if the
+    /// profile mentions it, and is skipped if not.
     pub fn build_profile_dictionaries(
         &self,
         data_dir: &Path,
@@ -216,14 +240,18 @@ impl LayoutDb {
     ) -> HashMap<LayoutId, poltertype_detect::LayoutDictionary> {
         let mut out = HashMap::new();
         for (id, mapping) in &self.by_id {
-            // Bundled stems are the BCP-47 id lowercased with `-` → `_`,
-            // the convention the FST file names follow. A user layout's
-            // real stem is its TOML filename, which is not tracked here,
-            // so it falls back to the same shape.
-            let stem = mapping.id.as_str().to_lowercase().replace('-', "_");
-            let dict = build_dictionary(data_dir, &stem, Some(profile_overlay_dir))
-                // No bundled FST and no profile overlay file: a user
-                // layout can still carry profile-specific words.
+            let (fst_dir, stem) = match self.sources.get(id) {
+                Some(src) => (src.dir.as_deref(), src.stem.clone()),
+                // Not recorded: the convention bundled FST names follow.
+                None => (
+                    Some(data_dir),
+                    mapping.id.as_str().to_lowercase().replace('-', "_"),
+                ),
+            };
+            let dict = fst_dir
+                .and_then(|dir| build_dictionary(dir, &stem, Some(profile_overlay_dir)))
+                // No FST: a user layout can still carry profile-specific
+                // words.
                 .or_else(|| build_user_dictionary(&stem, Some(profile_overlay_dir)));
             if let Some(mut dict) = dict {
                 if let Some(extra) = self.pack_extras.get(id) {

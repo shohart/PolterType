@@ -8,7 +8,7 @@ use poltertype_types::LayoutId;
 use tracing::{info, warn};
 
 use super::files::{build_dictionary, parse_wordlist};
-use super::types::{LayoutMapping, PluginManifest};
+use super::types::{DictSource, LayoutMapping, PluginManifest};
 
 /// Enumerate `<data_dir>/plugins/*/` and merge each pack's layouts into
 /// `by_id`. Loud but graceful at every level — one broken pack never
@@ -29,6 +29,7 @@ pub fn load_plugin_packs(
     data_dir: &Path,
     user_wordlist_dir: Option<&Path>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
+    sources: &mut HashMap<LayoutId, DictSource>,
 ) -> Vec<(String, HashSet<String>)> {
     let plugins_dir = data_dir.join("plugins");
     let entries = match std::fs::read_dir(&plugins_dir) {
@@ -51,7 +52,7 @@ pub fn load_plugin_packs(
 
     let mut extras = Vec::new();
     for pack_dir in pack_dirs {
-        extras.extend(load_one_pack(&pack_dir, user_wordlist_dir, by_id));
+        extras.extend(load_one_pack(&pack_dir, user_wordlist_dir, by_id, sources));
     }
     extras
 }
@@ -63,6 +64,7 @@ pub fn load_one_pack(
     pack_dir: &Path,
     user_wordlist_dir: Option<&Path>,
     by_id: &mut HashMap<LayoutId, LayoutMapping>,
+    sources: &mut HashMap<LayoutId, DictSource>,
 ) -> Vec<(String, HashSet<String>)> {
     let manifest_path = pack_dir.join("manifest.toml");
     let manifest_text = match std::fs::read_to_string(&manifest_path) {
@@ -149,6 +151,13 @@ pub fn load_one_pack(
                     pack = %manifest.id,
                     overriding,
                     "loaded plug-in layout"
+                );
+                sources.insert(
+                    layout.id.clone(),
+                    DictSource {
+                        dir: Some(pack_dir.to_path_buf()),
+                        stem: stem.clone(),
+                    },
                 );
                 by_id.insert(layout.id.clone(), layout);
             }

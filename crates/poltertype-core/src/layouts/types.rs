@@ -2,7 +2,7 @@
 //! [`LayoutMapping`], plug-in manifests, and loader options.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use poltertype_detect::{LayoutDictionary, LayoutProfile, Script};
 use poltertype_types::{LayoutId, WordKey, fold_lam_alef, lam_alef_pair};
@@ -328,4 +328,20 @@ pub struct LoadOptions<'a> {
     /// `None` (or an empty slice) leaves the bundled tables alone.
     /// See [`super::os_keymap`].
     pub os_keymaps: Option<&'a [poltertype_types::OsKeymap]>,
+}
+
+/// Where a loaded layout's dictionary came from, so a dictionary can be
+/// rebuilt for it later — per-app profiles do — from the same files.
+///
+/// Guessing it from the id is wrong twice: a pack's FST is in the pack,
+/// not the data dir, and a user's TOML that replaces a bundled id has no
+/// FST at all, so the guess would quietly give it the bundled one.
+#[derive(Debug, Clone)]
+pub struct DictSource {
+    /// Directory whose `wordlists/` holds the FST: the data dir for a
+    /// bundled layout, the pack's own for a pack's. `None` for a user
+    /// layout, whose dictionary is overlay files only.
+    pub dir: Option<PathBuf>,
+    /// File stem the dictionary files are named by.
+    pub stem: String,
 }

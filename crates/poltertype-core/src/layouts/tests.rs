@@ -1389,3 +1389,77 @@ fn extras_do_not_give_a_dictionaryless_layout_a_dictionary() {
             .is_none()
     );
 }
+
+fn fst_bytes_with(words: &[&str]) -> Vec<u8> {
+    let mut sorted: Vec<&str> = words.to_vec();
+    sorted.sort_unstable();
+    let mut builder = fst::SetBuilder::memory();
+    for w in sorted {
+        builder.insert(w).expect("insert into FST");
+    }
+    builder.into_inner().expect("FST builder")
+}
+
+/// A pack's layout keeps its own FST, and its extras, under a per-app
+/// profile. The profile rebuild used to look for the FST in the data
+/// dir only, so a pack's layout fell out of the profile's set entirely.
+#[test]
+fn profile_dictionaries_find_a_packs_own_fst() {
+    let data_dir = TmpDir::new("profile-pack-fst-data");
+    let profile = TmpDir::new("profile-pack-fst-dir");
+    let pack = write_pack(&data_dir.0, "kk");
+    write_pack_layout(&pack, "Қазақ");
+    std::fs::write(
+        pack.join("wordlists").join("kk_kz.fst"),
+        fst_bytes_with(&["сәлем"]),
+    )
+    .unwrap();
+    std::fs::write(pack.join("wordlists").join("kk_kz-extras.txt"), "өзінің\n").unwrap();
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        ..Default::default()
+    })
+    .expect("load");
+    let dicts = db.build_profile_dictionaries(&data_dir.0, &profile.0);
+    let dict = dicts
+        .get(&LayoutId::from("kk-KZ"))
+        .expect("a pack's layout stays in the profile's set");
+    assert!(dict.contains("сәлем"), "the pack's FST is used");
+    assert!(dict.contains("өзінің"), "and its extras are merged");
+}
+
+/// A user's TOML that replaces a bundled id has no FST. Its profile
+/// dictionary must not quietly pick up the bundled one by name.
+#[test]
+fn profile_dictionaries_do_not_lend_a_user_layout_the_bundled_fst() {
+    let data_dir = TmpDir::new("profile-user-fst-data");
+    let layouts = TmpDir::new("profile-user-fst-layouts");
+    let profile = TmpDir::new("profile-user-fst-dir");
+    write_bundled_en_us(&data_dir.0);
+    std::fs::write(
+        data_dir.0.join("wordlists").join("en_us.fst"),
+        fst_bytes_with(&["bundledword"]),
+    )
+    .unwrap();
+    layouts.write("en_us.toml", &minimal_layout_toml("en-US", "Mine", "Latin"));
+    profile.write("en_us.txt", "fromtheprofile\n");
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        user_layout_dir: Some(&layouts.0),
+        ..Default::default()
+    })
+    .expect("load");
+    assert!(
+        db.get(&LayoutId::from("en-US"))
+            .unwrap()
+            .dictionary
+            .is_none(),
+        "the user's layout has no dictionary at load"
+    );
+    let dicts = db.build_profile_dictionaries(&data_dir.0, &profile.0);
+    let dict = dicts.get(&LayoutId::from("en-US")).expect("profile words");
+    assert!(dict.contains("fromtheprofile"));
+    assert!(!dict.contains("bundledword"));
+}

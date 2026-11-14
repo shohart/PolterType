@@ -244,7 +244,10 @@ bundled one as it improves. The rules:
 * They never create a layout. Extras for a language that is not loaded
   are ignored, and so are extras for a layout with no dictionary —
   it stays plausibility-only.
-* Per-app profile dictionaries include them too.
+* Per-app profile dictionaries include them too, and are rebuilt from
+  the files each layout really loaded from — a pack's layout keeps the
+  pack's FST under a profile, and a user TOML replacing a bundled id
+  does not inherit the bundled FST there.
 * The stem is the id lowercased with `-` → `_`, as for bundled FSTs.
 
 The loader is **live as of 0.1.0-alpha.0**. `<data_dir>/plugins/`
