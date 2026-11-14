@@ -16,6 +16,9 @@ on:
   push:
     tags:
       - "v*"
+    # Test builds from the fork: installers as artifacts, no release.
+    branches:
+      - "test/**"
   workflow_dispatch:
 
 permissions:
@@ -183,6 +186,24 @@ jobs:
           OUT_DIR: target/dist
         run: bash installers/macos/build-dmg.sh
 
+      - name: Test provider kit (universal)
+        run: |
+          cargo build --release --locked --target x86_64-apple-darwin  -p poltertype-test-provider
+          cargo build --release --locked --target aarch64-apple-darwin -p poltertype-test-provider
+          KIT=target/dist/poltertype-test-provider
+          mkdir -p "$KIT/bin"
+          cp crates/poltertype-test-provider/manifest.toml "$KIT/"
+          lipo -create -output "$KIT/bin/poltertype-test-provider" \
+            target/x86_64-apple-darwin/release/poltertype-test-provider \
+            target/aarch64-apple-darwin/release/poltertype-test-provider
+          codesign --force --sign - "$KIT/bin/poltertype-test-provider"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-provider-kit-macos
+          path: target/dist/poltertype-test-provider
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         with:
           name: dmg-universal
@@ -241,6 +262,21 @@ jobs:
           # session). RefreshEnv is provided by the Chocolatey shim.
           $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
           pwsh installers/windows/build-msi.ps1
+
+      - name: Test provider kit
+        shell: pwsh
+        run: |
+          cargo build --release --locked --target x86_64-pc-windows-msvc -p poltertype-test-provider
+          $kit = "target/dist/poltertype-test-provider"
+          New-Item -ItemType Directory -Force "$kit/bin" | Out-Null
+          Copy-Item crates/poltertype-test-provider/manifest.toml $kit/
+          Copy-Item target/x86_64-pc-windows-msvc/release/poltertype-test-provider.exe "$kit/bin/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-provider-kit-windows
+          path: target/dist/poltertype-test-provider
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
