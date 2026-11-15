@@ -22,3 +22,9 @@ pub struct MenuRow {
     /// window having to be opened to find out.
     pub details: Vec<String>,
 }
+
+/// The provider channels open right now, shared between the supervisor,
+/// which adds and removes them, and whatever asks them — the suggestion
+/// tooltip, the clipboard rewrite. A read lock per question.
+pub type ProviderRegistry =
+    std::sync::Arc<parking_lot::RwLock<Vec<std::sync::Arc<super::ProviderLink>>>>;

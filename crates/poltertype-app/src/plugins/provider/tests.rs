@@ -208,3 +208,76 @@ fn a_rewrite_waits_for_its_own_deadline() {
     });
     assert!(matches!(r, Reply::Rewrite { .. }), "{r:?}");
 }
+
+// ─── The tooltip with providers merged in ───────────────────────
+
+use poltertype_detect::{Suggestion, SuggestionProvider};
+use poltertype_types::LayoutId;
+
+fn sugg(texts: &[&str]) -> Vec<Suggestion> {
+    texts
+        .iter()
+        .map(|t| Suggestion {
+            text: (*t).to_owned(),
+            score: 1.0,
+        })
+        .collect()
+}
+
+fn texts(s: &[Suggestion]) -> Vec<&str> {
+    s.iter().map(|s| s.text.as_str()).collect()
+}
+
+#[test]
+fn providers_get_reserved_places_and_never_reorder_the_built_ins() {
+    use super::suggester::merge;
+    let full = sugg(&["a1", "a2", "a3", "a4", "a5"]);
+    let merged = merge(full.clone(), vec!["P1".into(), "P2".into(), "P3".into()], 5);
+    assert_eq!(texts(&merged), ["a1", "a2", "a3", "P1", "P2"]);
+    // Room to spare: everyone fits, built-ins first.
+    let merged = merge(sugg(&["a1"]), vec!["P1".into()], 5);
+    assert_eq!(texts(&merged), ["a1", "P1"]);
+    // A duplicate of a built-in is not a new candidate.
+    let merged = merge(sugg(&["GitHub", "a2"]), vec!["GitHub".into()], 2);
+    assert_eq!(texts(&merged), ["GitHub", "a2"]);
+    // Nothing from providers changes nothing.
+    assert_eq!(texts(&merge(full.clone(), Vec::new(), 5)), texts(&full));
+}
+
+/// A built-in suggester that knows one word and offers fixed candidates.
+struct Fixed(Vec<&'static str>);
+
+impl SuggestionProvider for Fixed {
+    fn is_known(&self, _layout: &LayoutId, typed: &str) -> bool {
+        typed == "known"
+    }
+    fn suggest(&self, _layout: &LayoutId, _typed: &str, _max: usize) -> Vec<Suggestion> {
+        sugg(&self.0)
+    }
+}
+
+#[test]
+fn a_connected_provider_adds_its_candidate_to_the_tooltip() {
+    let Some(link) = with_provider(None, |req, w| {
+        writeln!(
+            w,
+            r#"{{"id":{},"candidates":[{{"text":"GitHub","score":0.9}}]}}"#,
+            req["id"]
+        )
+        .unwrap();
+    }) else {
+        return;
+    };
+    wait_connected(&link);
+    let registry = crate::plugins::ProviderRegistry::default();
+    registry.write().push(Arc::clone(&link));
+    let s = super::ProviderSuggester::new(Arc::new(Fixed(vec!["гетман"])), registry.clone());
+    let ru = LayoutId::from("ru-RU");
+    assert_eq!(texts(&s.suggest(&ru, "гетхаб", 5)), ["гетман", "GitHub"]);
+    // The dictionary decides what is a word, not the provider.
+    assert!(s.is_known(&ru, "known"));
+
+    // Switched off (removed from the registry): built-ins only again.
+    registry.write().clear();
+    assert_eq!(texts(&s.suggest(&ru, "гетхаб", 5)), ["гетман"]);
+}

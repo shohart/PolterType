@@ -14,8 +14,8 @@ mod supervisor;
 mod types;
 
 pub use menu::PluginMenu;
-pub use provider::{ProviderEnv, ProviderLink};
+pub use provider::{ProviderEnv, ProviderLink, ProviderSuggester};
 pub use supervisor::{
     Supervisor, ask_query, query_refusal, read_report, run_command, run_command_for_row_waiting,
 };
-pub use types::Departed;
+pub use types::{Departed, ProviderRegistry};

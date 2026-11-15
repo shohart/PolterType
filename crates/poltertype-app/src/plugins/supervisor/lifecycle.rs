@@ -57,6 +57,7 @@ impl Supervisor {
                 Err(e) => warn!(id = %ext.id, "could not start plug-in service: {e}"),
             }
         }
+        self.publish_providers();
     }
 
     /// Close the channel of every provider `consent` no longer lists.
@@ -74,6 +75,7 @@ impl Supervisor {
                 info!(id = %r.id, "text provider switched off; its channel is closed");
             }
         }
+        self.publish_providers();
     }
 
     /// The open provider channels, for whatever asks them.
@@ -123,6 +125,9 @@ impl Supervisor {
                 false
             }
         });
+        if !gone.is_empty() {
+            self.publish_providers();
+        }
         gone
     }
 
@@ -164,6 +169,7 @@ impl Supervisor {
             }
         }
         self.running.clear();
+        self.publish_providers();
     }
 
     pub fn is_running(&self, id: &str) -> bool {

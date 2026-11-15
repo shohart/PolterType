@@ -7,11 +7,13 @@
 
 **What exists today:** the manifest section and its checks, the
 consent switch, the channel, its supervision, the reply checks, and
-`poltertype --try-provider` to exercise all of it. **What does not, yet:**
-the engine asking. Merging `suggest` candidates into the tooltip and
-the "fix the last sentence" hotkey for `rewrite` are the next steps, each
-its own change. Until then a switched-on provider is connected and never
-asked.
+`poltertype --try-provider` to exercise all of it — and, as an **MVP**
+for discussion, `suggest` merged into the tooltip: each switched-on
+provider is asked on the engine's thread and waited for up to its
+`suggest_deadline_ms`. Built-in candidates come first; up to two places
+are kept for the providers'. Whether the tooltip should open at once
+and grow when a provider answers instead is open. The "fix the last
+sentence" hotkey for `rewrite` is a later step.
 
 ## The rules it keeps
 

@@ -331,6 +331,12 @@ fn main() -> Result<()> {
     // handle, so a swap reaches suggestions too.
     let dict_reload_handle = dictionary.handle();
     let suggester = build_suggester(&layouts, dictionary.handle());
+    // Text providers the user switched on add their candidates to the
+    // same tooltip; the supervisor fills this in once they are running.
+    let provider_registry = plugins::ProviderRegistry::default();
+    let suggester: Arc<dyn poltertype_detect::SuggestionProvider> = Arc::new(
+        plugins::ProviderSuggester::new(suggester, provider_registry.clone()),
+    );
     let mut detectors: Vec<Box<dyn Detector>> = vec![
         Box::new(dictionary),
         Box::new(build_plausibility_detector(&layouts)),
@@ -587,7 +593,7 @@ fn main() -> Result<()> {
     // a plug-in can never push Quit off the bottom of the menu.
     let discovered = poltertype_core::plugins::extensions(&data_dir);
     let mut plugin_menu = plugins::PluginMenu::build(discovered, &menu)?;
-    let mut supervisor = plugins::Supervisor::new();
+    let mut supervisor = plugins::Supervisor::with_registry(provider_registry.clone());
     supervisor.start_all(
         plugin_menu.extensions(),
         &settings.snapshot().text_providers,
