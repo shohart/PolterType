@@ -203,3 +203,27 @@ fn wordlist_stamp_sees_overlay_and_profile_files_only() {
     );
     assert!(wordlist_stamp(&dir.0.join("missing")).is_empty());
 }
+
+/// A pack's own `wordlists/` under this user's plug-in root is watched:
+/// that is where a bridge writes the words it exports.
+#[test]
+fn wordlist_stamp_sees_installed_packs_wordlists() {
+    use super::wordlist_stamp_with;
+
+    let dir = ScratchDir::new("stamp-overlay");
+    let root = ScratchDir::new("stamp-plugins");
+    let before = wordlist_stamp_with(&dir.0, Some(&root.0));
+    let words = root.0.join("plugins").join("bridge").join("wordlists");
+    std::fs::create_dir_all(&words).unwrap();
+    std::fs::write(words.join("ru_ru-extras.txt"), "Ничипуренко\n").unwrap();
+    let after = wordlist_stamp_with(&dir.0, Some(&root.0));
+    assert_ne!(before, after);
+    assert_eq!(after.len(), 1);
+    // The pack's other files are not words.
+    std::fs::write(
+        root.0.join("plugins").join("bridge").join("manifest.toml"),
+        "x",
+    )
+    .unwrap();
+    assert_eq!(wordlist_stamp_with(&dir.0, Some(&root.0)), after);
+}

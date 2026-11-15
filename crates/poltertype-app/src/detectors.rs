@@ -306,7 +306,16 @@ pub(crate) fn reload_all_wordlists(w: &WordlistReload) -> usize {
 /// Stamp of the wordlists folder; see [`WordlistStamp`]. A missing
 /// folder is an empty stamp, so creating it with a file in it counts as
 /// a change.
+///
+/// This user's installed packs count too: an extension may keep words in
+/// its own `wordlists/` — a bridge exporting another program's
+/// dictionary does — and those are reloaded the same way.
 pub(crate) fn wordlist_stamp(dir: &Path) -> WordlistStamp {
+    wordlist_stamp_with(dir, poltertype_core::plugins::user_root().as_deref())
+}
+
+/// [`wordlist_stamp`], with the plug-in root given rather than resolved.
+pub(crate) fn wordlist_stamp_with(dir: &Path, plugin_root: Option<&Path>) -> WordlistStamp {
     fn add_txt_files(dir: &Path, out: &mut WordlistStamp) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -323,14 +332,20 @@ pub(crate) fn wordlist_stamp(dir: &Path) -> WordlistStamp {
             }
         }
     }
-    let mut out = WordlistStamp::new();
-    add_txt_files(dir, &mut out);
-    if let Ok(profiles) = std::fs::read_dir(dir.join("profiles")) {
-        for p in profiles.flatten() {
-            if p.file_type().is_ok_and(|t| t.is_dir()) {
-                add_txt_files(&p.path(), &mut out);
+    fn add_subdirs(parent: &Path, below: &str, out: &mut WordlistStamp) {
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for e in entries.flatten() {
+                if e.file_type().is_ok_and(|t| t.is_dir()) {
+                    add_txt_files(&e.path().join(below), out);
+                }
             }
         }
+    }
+    let mut out = WordlistStamp::new();
+    add_txt_files(dir, &mut out);
+    add_subdirs(&dir.join("profiles"), "", &mut out);
+    if let Some(root) = plugin_root {
+        add_subdirs(&root.join("plugins"), "wordlists", &mut out);
     }
     out.sort();
     out

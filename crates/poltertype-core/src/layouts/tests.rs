@@ -1566,3 +1566,39 @@ fn the_users_written_form_beats_a_packs() {
     let pdict = dicts.get(&LayoutId::from("en-US")).unwrap();
     assert_eq!(pdict.overlay_surface_of("github"), Some("Github"));
 }
+
+/// An extension is a pack too, as far as words go: a bridge keeps the
+/// dictionary it exports in its own `wordlists/`, next to an extension
+/// manifest the layout loader must not refuse.
+#[test]
+fn an_extensions_own_wordlists_are_read_as_pack_extras() {
+    let data_dir = TmpDir::new("ext-extras-data");
+    let user_root = TmpDir::new("ext-extras-root");
+    write_bundled_en_us(&data_dir.0);
+    let pack = user_root.0.join("plugins").join("lexomorph-bridge");
+    std::fs::create_dir_all(pack.join("wordlists")).unwrap();
+    std::fs::write(
+        pack.join("manifest.toml"),
+        r#"id = "lexomorph-bridge"
+name = "Lexomorph Bridge"
+version = "0.1.0"
+kind = "extension"
+
+[extension]
+exe = "lexomorph-bridge"
+service_args = ["serve"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(pack.join("wordlists").join("en_us-extras.txt"), "GitHub\n").unwrap();
+
+    let db = LayoutDb::load(LoadOptions {
+        data_dir: Some(&data_dir.0),
+        user_plugin_root: Some(&user_root.0),
+        ..Default::default()
+    })
+    .expect("load");
+    let dict = dict_of(&db, "en-US");
+    assert!(dict.contains("github"));
+    assert_eq!(dict.overlay_surface_of("github"), Some("GitHub"));
+}
