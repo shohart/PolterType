@@ -195,3 +195,8 @@ pub(crate) const DEFERRED_MENU_EMPTY: &str = "No missed words yet";
 /// How long `--try-provider` waits for the provider to connect. As long
 /// as the tray waits: a provider that loads a model first needs it.
 pub(crate) const TRY_PROVIDER_CONNECT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Longest clipboard text "Improve Text in Clipboard" sends. A provider's
+/// rewrite is checked for length against its input, and a request line
+/// is capped at 64 KiB; this keeps well inside both, at a few paragraphs.
+pub(crate) const MAX_CLIPBOARD_REWRITE_CHARS: usize = 4000;

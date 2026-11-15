@@ -32,6 +32,8 @@ pub(crate) struct TrayMenu {
     pub(crate) wordlists: MenuItem,
     pub(crate) layouts: MenuItem,
     pub(crate) reload: MenuItem,
+    /// "Improve Text in Clipboard" — a text provider's rewrite (MVP).
+    pub(crate) rewrite: MenuItem,
     pub(crate) deferred: Submenu,
     pub(crate) update: Option<MenuItem>,
     pub(crate) about: MenuItem,

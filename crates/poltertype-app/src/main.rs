@@ -24,6 +24,7 @@ mod settings_ui;
 
 mod bridges;
 mod cli;
+mod clipboard_rewrite;
 mod consts;
 mod detectors;
 mod enums;
@@ -524,6 +525,7 @@ fn main() -> Result<()> {
     let item_wordlists = MenuItem::new("", true, None);
     let item_layouts = MenuItem::new("", true, None);
     let item_reload = MenuItem::new("", true, None);
+    let item_rewrite = MenuItem::new("", true, None);
     // Auto-switching may have been left off in a previous run.
     let start_paused = settings.snapshot().general.paused;
     let mut tray_style = TrayIconStyle::from_config(&settings.snapshot().general.tray_icon);
@@ -559,6 +561,7 @@ fn main() -> Result<()> {
         &item_wordlists,
         &item_layouts,
         &item_reload,
+        &item_rewrite,
         &PredefinedMenuItem::separator(),
         &item_pause,
         &menu_deferred,
@@ -582,6 +585,7 @@ fn main() -> Result<()> {
         wordlists: item_wordlists.clone(),
         layouts: item_layouts.clone(),
         reload: item_reload.clone(),
+        rewrite: item_rewrite.clone(),
         deferred: menu_deferred.clone(),
         update: item_update.clone(),
         about: item_about.clone(),
@@ -616,6 +620,7 @@ fn main() -> Result<()> {
     let wordlists_id = item_wordlists.id().clone();
     let layouts_id = item_layouts.id().clone();
     let reload_id = item_reload.id().clone();
+    let rewrite_id = item_rewrite.id().clone();
     let pause_id = item_pause.id().clone();
     let about_id = item_about.id().clone();
     let quit_id = item_quit.id().clone();
@@ -1031,6 +1036,11 @@ fn main() -> Result<()> {
                         Ok(dir) => open_path(&dir, "user layouts folder"),
                         Err(e) => warn!(?e, "could not prepare user layouts folder"),
                     }
+                } else if id == rewrite_id {
+                    clipboard_rewrite::spawn_clipboard_rewrite(
+                        provider_registry.clone(),
+                        layout_switcher.current().ok(),
+                    );
                 } else if id == reload_id {
                     // Also re-reads the user overlays, which is what
                     // lets added vocabulary apply without a restart —

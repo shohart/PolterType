@@ -141,6 +141,8 @@ pub(crate) fn relabel_menu(
         .set_text(tr("tray.open_layouts", "Open User Layouts Folder…"));
     menu.reload
         .set_text(tr("tray.reload_settings", "Reload Settings"));
+    menu.rewrite
+        .set_text(tr("tray.improve_clipboard", "Improve Text in Clipboard"));
     menu.deferred
         .set_text(tr("tray.deferred", DEFERRED_MENU_LABEL));
     if let Some(item) = &menu.update {
