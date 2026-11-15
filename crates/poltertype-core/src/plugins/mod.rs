@@ -25,6 +25,7 @@
 //! about.
 
 mod catalogs;
+mod config_path;
 mod consts;
 mod discover;
 mod enums;
@@ -35,6 +36,7 @@ mod types;
 mod validate;
 
 pub use catalogs::*;
+pub use config_path::*;
 pub use consts::*;
 pub use discover::*;
 pub use enums::*;

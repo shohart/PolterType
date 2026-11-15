@@ -514,3 +514,44 @@ fn consent_opens_a_channel_and_withdrawing_it_closes_one() {
     sup.stop_all();
     let _ = std::fs::remove_file(&out);
 }
+
+/// Every service is told where its settings pane writes, ending in the
+/// file the manifest names under a directory named after the plug-in.
+#[test]
+fn a_service_is_told_where_its_config_file_is() {
+    let out = scratch_file("config-env");
+    let (_, flag) = shell();
+    let mut ext = sleeper(true);
+    ext.id = "test-config".to_owned();
+    ext.manifest.config_file = "bridge.toml".to_owned();
+    let script = if cfg!(windows) {
+        format!(
+            "echo %POLTERTYPE_PLUGIN_CONFIG%>{} & {}",
+            out.display(),
+            stay_alive()
+        )
+    } else {
+        format!(
+            "printf '%s' \"${{POLTERTYPE_PLUGIN_CONFIG:-none}}\" > '{}'; {}",
+            out.display(),
+            stay_alive()
+        )
+    };
+    ext.manifest.service_args = vec![flag.to_owned(), script];
+    let mut sup = Supervisor::new();
+    sup.start_all(&[ext], &Default::default());
+    let seen = read_when_written(&out);
+    sup.stop_all();
+    let _ = std::fs::remove_file(&out);
+    let seen = std::path::PathBuf::from(seen.trim());
+    assert_eq!(
+        seen.file_name().and_then(|f| f.to_str()),
+        Some("bridge.toml")
+    );
+    assert_eq!(
+        seen.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|f| f.to_str()),
+        Some("test-config")
+    );
+}

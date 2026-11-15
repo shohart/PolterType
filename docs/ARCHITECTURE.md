@@ -333,9 +333,11 @@ Four things the supervisor deliberately does not do:
   never logging typed text binds PolterType; a plug-in that reads
   keystrokes was trusted with them by being installed at all.
 
-Every plug-in process is started with two variables: `POLTERTYPE_LOCALE`,
-so what it prints comes out in the user's language, and
-`POLTERTYPE_DATA_DIR`, the data directory this PolterType resolved. A
+Every plug-in process is started with three variables: `POLTERTYPE_LOCALE`,
+so what it prints comes out in the user's language,
+`POLTERTYPE_PLUGIN_CONFIG`, the file its settings pane edits, so it reads
+what the user set without re-deriving PolterType's per-OS config layout,
+and `POLTERTYPE_DATA_DIR`, the data directory this PolterType resolved. A
 plug-in built on `poltertype-core` would otherwise look for layouts and
 wordlists beside its own executable, in `plugins/<id>/bin/`, find
 nothing, and fail on the first thing that needs a layout.

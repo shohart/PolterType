@@ -36,13 +36,7 @@ impl Supervisor {
             }
             let (provider, env) = open_provider(ext, consent);
             let log = service_log(&ext.id);
-            match spawn(
-                &ext.exe,
-                &ext.manifest.service_args,
-                &ext.dir,
-                log.as_ref(),
-                &env,
-            ) {
+            match spawn(ext, &ext.manifest.service_args, log.as_ref(), &env) {
                 Ok(child) => {
                     info!(
                         id = %ext.id,

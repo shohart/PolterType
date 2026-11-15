@@ -98,13 +98,11 @@ impl PluginPane {
     /// directories — the parent of ours. A plug-in is a separate
     /// program, so its config sits beside PolterType's, not inside it.
     pub fn load(ext: DiscoveredExtension, config_root: &Path) -> Self {
-        let config_path = config_root
-            .join(&ext.id)
-            .join(if ext.manifest.config_file.is_empty() {
-                "config.toml"
-            } else {
-                &ext.manifest.config_file
-            });
+        let config_path = poltertype_core::plugins::plugin_config_path_in(
+            config_root,
+            &ext.id,
+            &ext.manifest.config_file,
+        );
         let text = std::fs::read_to_string(&config_path).unwrap_or_default();
         let values = ext
             .manifest

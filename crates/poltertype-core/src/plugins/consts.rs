@@ -85,3 +85,7 @@ pub const DEFAULT_SUGGEST_DEADLINE_MS: u64 = 60;
 
 /// `rewrite_deadline_ms` when the manifest names none.
 pub const DEFAULT_REWRITE_DEADLINE_MS: u64 = 1500;
+
+/// Environment variable naming the plug-in's own config file — the one
+/// its settings pane edits — in every process PolterType starts for it.
+pub const PLUGIN_CONFIG_VAR: &str = "POLTERTYPE_PLUGIN_CONFIG";

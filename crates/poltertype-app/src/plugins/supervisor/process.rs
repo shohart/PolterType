@@ -16,19 +16,19 @@ use tracing::warn;
 use super::consts::{LOG_LINE_CHARS, LOG_TAIL_BYTES};
 
 pub(super) fn spawn(
-    exe: &PathBuf,
+    ext: &DiscoveredExtension,
     args: &[String],
-    dir: &PathBuf,
     log: Option<&(PathBuf, std::fs::File)>,
     extra_env: &[(&str, std::ffi::OsString)],
 ) -> std::io::Result<Child> {
+    let (exe, dir) = (&ext.exe, &ext.dir);
     let mut cmd = Command::new(exe);
     cmd.args(args)
         // The plug-in's own directory, so a relative path in its
         // config means what its author expected.
         .current_dir(dir)
         .stdin(Stdio::null());
-    host_env(&mut cmd);
+    host_env(&mut cmd, ext);
     // The service's alone — never `host_env`, which one-shot commands
     // share: a provider's channel is for the process it was opened for.
     cmd.envs(extra_env.iter().map(|(k, v)| (*k, v)));
@@ -61,13 +61,21 @@ pub(super) fn spawn(
 /// exist — it would fail on the first thing that needs a layout. Handing
 /// it the directory this process resolved means one copy of the data,
 /// and the same version of it on both sides.
-fn host_env(cmd: &mut Command) {
+fn host_env(cmd: &mut Command, ext: &DiscoveredExtension) {
     cmd.env(
         poltertype_core::i18n::LOCALE_ENV,
         poltertype_core::i18n::active_locale(),
     );
     if let Ok(data) = poltertype_core::data_dir::resolve() {
         cmd.env(poltertype_core::data_dir::ENV_OVERRIDE, data);
+    }
+    // The file its settings pane edits, so the plug-in reads exactly
+    // what the user set rather than re-deriving PolterType's per-OS
+    // config layout. A path, not a secret.
+    if let Some(config) =
+        poltertype_core::plugins::plugin_config_path(&ext.id, &ext.manifest.config_file)
+    {
+        cmd.env(poltertype_core::plugins::PLUGIN_CONFIG_VAR, config);
     }
 }
 
@@ -83,7 +91,7 @@ pub(super) fn capture_output(
     use std::io::Read as _;
 
     let mut cmd = Command::new(&ext.exe);
-    host_env(&mut cmd);
+    host_env(&mut cmd, ext);
     cmd.args(args)
         .current_dir(&ext.dir)
         .stdin(Stdio::null())

@@ -31,7 +31,7 @@ pub fn run_command(ext: &DiscoveredExtension, command_id: &str) -> Result<(), St
 
     // No log file for a one-shot: it inherits. The service log exists
     // because a service dies unobserved.
-    spawn(&ext.exe, &cmd.args, &ext.dir, None, &[])
+    spawn(ext, &cmd.args, None, &[])
         .map(|child| {
             info!(id = %ext.id, command = %command_id, pid = child.id(), "plug-in command started");
             // The child is reparented when it outlives us, which for a
@@ -55,7 +55,7 @@ pub fn run_command_for_row(
 ) -> Result<(), String> {
     let args = substituted(ext, command_id, ROW_ID_PLACEHOLDER, row_id)?;
 
-    spawn(&ext.exe, &args, &ext.dir, None, &[])
+    spawn(ext, &args, None, &[])
         .map(|child| {
             info!(id = %ext.id, command = %command_id, row = %row_id, pid = child.id(), "plug-in row command started");
         })
